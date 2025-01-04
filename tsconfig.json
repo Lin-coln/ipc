@@ -1,11 +1,10 @@
 {
-
   "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
     "types": ["node"],
     "target": "esnext",
     "module": "esnext",
-//    "sourceMap": false,
+    //    "sourceMap": false,
     "strict": true,
     "jsx": "preserve",
     "esModuleInterop": true,
@@ -14,21 +13,18 @@
     "isolatedModules": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-//    "noUnusedLocals": true,
-//    "noUnusedParameters": true,
-//    "noImplicitAny": false,
+    //    "noUnusedLocals": true,
+    //    "noUnusedParameters": true,
+    //    "noImplicitAny": false,
     "noImplicitReturns": true,
-
 
     "noUnusedParameters": false,
     "noUnusedLocals": false,
     "noImplicitAny": false,
     "sourceMap": true,
     "baseUrl": ".",
-    "paths": {
-    }
-  }
-,
+    "paths": {}
+  },
   "include": ["./src"],
   "exclude": ["./node_modules"]
 }
