@@ -1,61 +1,32 @@
-import { Peer } from "../dist";
+import * as ipc from "../dist";
 import path from "path";
 import url from "node:url";
 
 const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-export const projectDirname = path.resolve(__dirname, "..");
-
+const projectDirname = path.resolve(__dirname, "..");
 const pipeDirname = path.resolve(projectDirname, "./scripts");
-const port: number = parseInt(process.env.PORT as string, 10);
+const port = parseInt(process.env.PORT as string, 10) as 5001 | 5002;
 
 void main();
 
 async function main() {
-  const ports = {
-    "5001": [5002],
-    "5002": [5001],
-    "5003": [],
-  };
-
-  console.log(`[peer] ${port}`);
-
-  const peer = new Peer()
-    .on("connected", (connId) => {
-      // console.log("[peer] connected", connId);
-      // void connManager.postMessage(connId, { message: `hello from ${connId}` });
-    })
-    .on("message", (connId, data) => {
-      // console.log("[peer] received message", connId, data);
-    })
-    .on("peer.broadcast", (data) => {
-      console.log(`[peer] broadcast`, data);
+  const pipeFilename = path.join(pipeDirname, "pipe.sock");
+  if (port === 5001) {
+    const server = await new ipc.IpcServerPlugin({}).listen({
+      path: pipeFilename,
     });
+  } else {
+    const client = await new ipc.IpcConnPlugin({})
+      .on("connect", async () => {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        console.log("id", client.remoteIdentifier);
+        console.log(client.socket);
+      })
+      .connect({ path: pipeFilename });
 
-  await peer.listen({
-    path: path.join(pipeDirname, `pipe-${port}.sock`),
-    // host: "localhost", port: port
-  });
+    await new Promise((resolve) => setTimeout(resolve, 4_000));
 
-  const list = ports[port.toString()] as number[];
-  for (const remotePort of list) {
-    await peer.connect({
-      path: path.join(pipeDirname, `pipe-${remotePort}.sock`),
-      // host: "localhost", port: remotePort
-    });
+    client.write(Buffer.from(`${new Date().toISOString()} - hello`, "utf8"));
   }
-
-  await new Promise((resolve) => setTimeout(resolve, 2_000));
-  await peer.broadcast({
-    id: peer.id,
-  });
-
-  // if (port === 5001) {
-  //   await peer.connect({
-  //     host: "localhost",
-  //     port: 5002,
-  //   });
-  // } else {
-  //   await peer.listen({ host: "localhost", port: port });
-  // }
 }

@@ -1,230 +1,208 @@
-import { uuid } from "./utils";
-import * as events from "node:events";
 import * as net from "node:net";
-import * as fs from "node:fs";
-import useCleanup from "./useCleanup";
-import { XX } from "./interface";
+import * as process from "node:process";
+import EventBus from "./utils/EventBus";
+import {
+  ClientEvents,
+  ClientPlugin,
+  ServerEvents,
+  ServerPlugin,
+} from "./interfaces";
+import wrapRetry from "./utils/wrapRetry";
+import useCleanup from "./utils/useCleanup";
+import fs from "node:fs";
+import { createPromise } from "./utils/promise";
+import { uuid } from "./utils/uuid";
 
-export class SocketConnection
-  extends events.EventEmitter
-  implements XX.Connection<net.SocketConnectOpts>
+export class IpcClientPlugin
+  extends EventBus<ClientEvents>
+  implements ClientPlugin<net.IpcSocketConnectOpts>
 {
-  id: string;
-  state: XX.ConnectionState;
   socket: net.Socket;
-
-  constructor(
-    opts: {
-      id?: string;
-      // ...
-      state?: XX.ConnectionState;
-      socket?: net.Socket;
-    } = {},
-  ) {
+  connOpts: net.IpcSocketConnectOpts | null;
+  constructor(opts: net.SocketConstructorOpts) {
     super();
-    this.id = opts.id ?? uuid();
-    this.state = opts.state ?? "disconnected";
-    this.socket = opts.socket ?? new net.Socket();
-
-    if (this.state === "connected") {
-      this.registrySocketEvents(this.socket, {});
-    }
+    this.socket = new net.Socket(opts);
+    this.connOpts = null;
+    enhanceClient.call(this);
+    this.on("disconnect", () => this.off());
   }
-
-  async connect(
-    opts: net.SocketConnectOpts,
-    { reconnect }: { reconnect?: boolean } = {},
-  ) {
-    if (this.state !== "disconnected" && !reconnect) {
-      throw new Error(`[socket] failed to connect state(${this.state})`);
-    }
-    this.state = "connecting";
-    console.log(`[socket] ${reconnect ? "reconnecting" : "connecting"}...`);
-
-    const times = 30;
-    const delay = 1_000;
-    let count = 0;
-
-    while (true) {
+  get remoteIdentifier() {
+    if (!this.connOpts) return null;
+    return `pipe::${this.connOpts.path}`;
+  }
+  async connect(opts: net.IpcSocketConnectOpts) {
+    await new Promise<void>((resolve, reject) => {
       try {
-        await connect.call(this);
-        break;
-      } catch (e: any) {
-        const shouldRetry =
-          "code" in e && ["ENOENT", "ECONNREFUSED"].includes(e.code);
-        if (shouldRetry) {
-          if (++count <= times) {
-            console.log(
-              `[socket] reconnecting... (${count}/${times}), ${e.code}`,
-            );
-            await new Promise((resolve) => setTimeout(resolve, delay));
-            continue;
-          }
-        }
-        this.state = "disconnected";
-        console.log(
-          `[socket] failed to ${reconnect ? "reconnect" : "connect"},`,
-          e.message,
-        );
-        throw e;
+        if (this.socket.connecting)
+          throw new Error(`failed to connect - connecting`);
+        if (!this.socket.pending)
+          throw new Error(`failed to connect - not pending`);
+        this.socket.on("error", reject).on("connect", resolve).connect(opts);
+      } catch (e) {
+        reject(e);
       }
-    }
+    }).finally(() => {
+      this.socket.removeAllListeners();
+    });
 
-    async function connect(this: SocketConnection) {
-      await new Promise<void>((resolve, reject) => {
-        this.socket
-          .once("error", reject)
-          .once("connect", resolve)
-          .connect(opts);
-      }).finally(() => {
-        this.socket.removeAllListeners();
-      });
-
-      this.state = "connected";
-      this.registrySocketEvents(this.socket, { connOpts: opts });
-      // if (!reconnect) {
-      //   this.emit("connected");
-      // }
-      this.emit("connected");
-    }
+    this.socket
+      .on("error", (err) => {
+        console.log(`[socket] error`, err.message);
+        this.emit("error", err);
+        this.disconnect(err);
+      })
+      .on("close", (hadError: boolean) => {
+        if (hadError) return;
+        this.disconnect();
+      })
+      // todo: connect-data issue
+      .on("data", (data) => this.emit("data", data));
+    this.connOpts = opts;
+    this.emit("connect");
+    return this;
   }
-
-  disconnect() {
-    this.state = "disconnected";
-    this.socket.destroy();
+  async disconnect(err?: Error) {
+    this.socket.removeAllListeners();
+    this.socket.destroy(err);
+    this.connOpts = null;
+    this.emit("disconnect");
   }
-
   write(data: Buffer): boolean {
     return this.socket.write(data);
   }
-
-  private registrySocketEvents(
-    socket: net.Socket,
-    {
-      connOpts,
-    }: {
-      connOpts?: net.SocketConnectOpts;
-    },
-  ) {
-    socket
-      .on("data", (data: Buffer) => {
-        this.emit("data", data);
-      })
-      .on("end", () => {
-        console.log(`[socket] end`);
-      })
-      .on("error", (err) => {
-        console.log(`[socket] error`, err.message);
-        // this.emit("error", err);
-        throw err;
-      })
-      .on("close", handleSocketClose.bind(this));
-    function handleSocketClose(this: SocketConnection) {
-      console.log(`[socket] close`);
-      socket.removeAllListeners();
-
-      const shouldReconnect = !!connOpts && this.state === "connected";
-      console.log(`[socket]`, { shouldReconnect }, this.state);
-      if (shouldReconnect) {
-        this.connect(connOpts, { reconnect: true }).catch(onClose.bind(this));
-        return;
-      }
-
-      onClose.call(this);
-
-      function onClose(this: SocketConnection) {
-        this.once("close", () => this.removeAllListeners()).emit("close");
-      }
-    }
-  }
 }
 
-export class ConnectionManager
-  extends events.EventEmitter
-  implements XX.ConnectionManager
+function enhanceClient(this: IpcClientPlugin) {
+  // retry feature
+  this.connect = wrapRetry({
+    onExecute: this.connect.bind(this),
+    onCheck: (e) =>
+      "code" in e && ["ENOENT", "ECONNREFUSED"].includes(e.code as string),
+    beforeRetry: ({ count, times, error }) =>
+      console.log(
+        `[socket] reconnect (${count}/${times})`,
+        "code" in error ? error.code : error.message,
+      ),
+  });
+}
+
+/////////////////////////////////////////////////////////////////////
+
+export class IpcServerPlugin
+  extends EventBus<ServerEvents>
+  implements ServerPlugin<net.ListenOptions>
 {
-  connections: Map<string, XX.Connection>;
-
-  server: net.Server | null;
-
-  constructor() {
+  server: net.Server;
+  sockets: Map<string, net.Socket>;
+  constructor(opts: net.ServerOpts) {
     super();
-    this.connections = new Map();
-    this.server = null;
+    this.server = new net.Server(opts);
+    this.sockets = new Map();
+    enhanceServer.call(this);
+    this.on("close", () => this.off());
   }
-
-  async listen(listenOpts: net.ListenOptions) {
-    if (!this.server) {
-      this.server = new net.Server().on("connection", (socket: net.Socket) => {
-        const conn = this.generateConnection({ state: "connected", socket })
-          // socket connected
-          .on("connected", () => {
-            // console.log(`[conn] server connected`, conn.id);
-          });
-        conn.emit("connected");
-      });
-    }
-
-    const server = this.server;
-    await new Promise<void>((resolve) => {
-      // delete sock file
-      useCleanup(() => {
-        if (listenOpts.path && fs.existsSync(listenOpts.path)) {
-          fs.unlinkSync(listenOpts.path);
-        }
-      });
-      server.listen(listenOpts, resolve);
+  async listen(opts: net.ListenOptions) {
+    await new Promise<void>((resolve, reject) => {
+      try {
+        if (this.server.listening)
+          throw new Error(`failed to listen - listening`);
+        this.server.on("error", reject).on("listening", resolve).listen(opts);
+      } catch (e) {
+        reject(e);
+      }
+    }).finally(() => {
+      this.server.removeAllListeners();
     });
-  }
 
-  async connect(connOpts: net.SocketConnectOpts) {
-    const conn = this.generateConnection({}).on("connected", () => {
-      // console.log(`[conn] client connected`, conn.id);
-    });
-    await conn.connect(connOpts);
-  }
-
-  postMessage(connId: string, data: object) {
-    const conn = this.connections.get(connId);
-    if (!conn) {
-      throw new Error(`conn not found. ${connId}`);
-    }
-
-    const serialized = this.onSerialize(data);
-    conn.write(serialized);
-
-    return Promise.resolve();
-  }
-
-  protected generateConnection(
-    opts: ConstructorParameters<typeof SocketConnection>[0] = {},
-  ) {
-    const conn = new SocketConnection(opts)
+    this.server
+      .on("error", (err) => {
+        console.log(`[server] error`, err.message);
+        this.emit("error", err);
+        this.close();
+      })
       .on("close", () => {
-        this.connections.delete(conn.id);
-        this.emit("disconnected", conn.id);
+        // ...
+        this.close();
       })
-      .on("connected", () => {
-        this.connections.set(conn.id, conn);
-        this.emit("connected", conn.id);
-      })
-      .on("data", (data: Buffer) => {
-        this.emit("message", conn.id, this.onDeserialize(data));
-      });
-    return conn;
+      // todo: listening-connection issue
+      .on("connection", handleSocketConnection.bind(this));
+    this.emit("listening");
+    return this;
   }
+  async close(): Promise<void> {
+    const closePromise = createPromise();
+    this.server.close((err?: Error) =>
+      err ? closePromise.reject(err) : closePromise.resolve(void 0),
+    );
 
-  protected onSerialize(data: object): Buffer {
-    return Buffer.from(JSON.stringify(data), "utf-8");
+    return closePromise.then(() => {
+      this.server.removeAllListeners();
+      this.emit("close");
+    });
   }
-
-  protected onDeserialize(data: Buffer): object | string {
-    let deserialized = data.toString("utf-8");
-    try {
-      deserialized = JSON.parse(deserialized);
-    } catch {
-      // ...
+  write(id: string, data: Buffer): boolean {
+    const socket = this.sockets.get(id);
+    if (!socket) {
+      throw new Error(`[server] failed to write - socket not found: ${id}`);
     }
-    return deserialized;
+    return socket.write(data);
   }
 }
+
+function enhanceServer(this: IpcServerPlugin) {
+  const listen = this.listen.bind(this);
+  this.listen = function (this: IpcClientPlugin, opts: net.ListenOptions) {
+    let sockPath = opts.path;
+    if (!sockPath) return listen.call(this, opts);
+
+    // fix socket path
+    if (process.platform === "win32") {
+      const winPrefixes = [`\\\\.\\pipe\\`, `\\\\?\\pipe\\`];
+      if (!winPrefixes.some((p) => sockPath!.startsWith(p))) {
+        sockPath = sockPath.replace(/^\//, "").replace(/\//g, "-");
+        sockPath = `\\\\.\\pipe\\${sockPath}`;
+      }
+    }
+
+    // wrap clear sock file
+    const clearSock = () => fs.existsSync(sockPath) && fs.unlinkSync(sockPath);
+    return listen
+      .call(this, { ...opts, path: sockPath })
+      .then((res) => {
+        useCleanup(clearSock);
+        return res;
+      })
+      .catch((e) => {
+        clearSock();
+        throw e;
+      });
+  };
+}
+
+function handleSocketConnection(this: IpcServerPlugin, socket: net.Socket) {
+  const id = uuid();
+  console.log(`[server] connected socket: ${id}`);
+
+  const onSocketRemove = () => {
+    this.sockets.delete(id);
+  };
+  const onSocketData = (data: Buffer) => {
+    this.emit("data", data, { id, reply: this.write.bind(this, id) });
+  };
+  socket
+    .on("error", (e) => {
+      console.log(`[server.socket] error: ${id}`, e);
+      onSocketRemove();
+    })
+    .on("close", () => {
+      console.log(`[server.socket] close: ${id}`);
+      onSocketRemove();
+    })
+    .on("data", (data) => {
+      console.log(`[server.socket] data: ${id} - ${data.toString("utf8")}`);
+      onSocketData(data);
+    });
+  this.sockets.set(id, socket);
+}
+
+/////////////////////////////////////////////////////////////////////
