@@ -12,12 +12,10 @@ export class IpcClientPlugin
   extends EventBus<ClientEvents>
   implements ClientPlugin<net.IpcSocketConnectOpts>
 {
-  state: "disconnected" | "connecting" | "connected" | "disconnecting";
   socket: net.Socket;
   connOpts: net.IpcSocketConnectOpts | null;
   constructor(opts: net.SocketConstructorOpts) {
     super();
-    this.state = "disconnected";
     this.socket = new net.Socket(opts);
     this.connOpts = null;
     enhanceClient.call(this);
@@ -101,21 +99,45 @@ export class IpcClientPlugin
   }
 
   async write(data: Buffer): Promise<this> {
-    if (this.socket.pending)
+    const socket = this.socket;
+    if (socket.pending)
       // not connected
       throw new Error(`[client] failed to write - not connected`);
 
     logger.log(`[client.socket] write`, data.toString("utf8"));
-    const done = this.socket.write(data);
-    if (done) return this;
 
+    const remain = socket.writableHighWaterMark - socket.writableLength;
+    // write directly
+    if (remain >= data.length) {
+      const done = socket.write(data);
+      if (done) {
+        return this;
+      }
+    }
+
+    // write by chunk
+    if (data.length >= socket.writableHighWaterMark || data.length > remain) {
+      const chunkSize = 1024;
+      let index = 0;
+      let chunk: Buffer;
+      while (true) {
+        if (index >= data.length) break;
+
+        chunk = data.subarray(index, index + chunkSize);
+        await this.write(chunk);
+        index += chunkSize;
+      }
+      return this;
+    }
+
+    // wait drain
     return new Promise((resolve, reject) => {
       const handler: ClientEvents["disconnect"] = (ctx) => {
         this.off("disconnect", handler);
         reject(new Error(`[client] failed to write - disconnect`));
       };
       this.on("disconnect", handler);
-      this.socket.once("drain", () => {
+      socket.once("drain", () => {
         this.write(data).then(resolve, reject);
       });
     });

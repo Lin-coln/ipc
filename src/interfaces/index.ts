@@ -49,6 +49,6 @@ export interface IClient<
   disconnect(): Promise<this>;
   write(data: Buffer): Promise<this>;
   postMessage(data: PostMsg): Promise<this>;
-  onDeserialize(data: Buffer): PostMsg | ReceivedMsg;
-  onSerialize(data: PostMsg | ReceivedMsg): Buffer;
+  onDeserialize(data: Buffer): IClientMessage;
+  onSerialize(data: IClientMessage): Buffer;
 }

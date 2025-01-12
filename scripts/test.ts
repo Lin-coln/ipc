@@ -61,7 +61,7 @@ async function executeServer() {
       console.log(`[press] message`);
       server.write(
         socketId,
-        Buffer.from(`${new Date().toISOString()} - hello`, "utf8"),
+        Buffer.from(`${new Date().toISOString()} - hello\f`, "utf8"),
       );
     }
   });

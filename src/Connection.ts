@@ -8,6 +8,7 @@ import {
   IClientMessage,
 } from "@interfaces/index";
 import wrapSinglePromise from "@utils/wrapSinglePromise";
+import { createLoop } from "@utils/Loop";
 
 type PresetClientPlugin = IpcClientPlugin;
 type PresetClientParams = {
@@ -27,6 +28,7 @@ export class Client<
   constructor() {
     super();
     this.#plugin = null;
+
     this.connect = wrapSinglePromise(this.connect);
     this.disconnect = wrapSinglePromise(this.disconnect);
   }
@@ -50,7 +52,7 @@ export class Client<
         this.emit("disconnect", ctx);
       })
       .on("data", (data) => {
-        this.emit("message", this.onDeserialize(data) as ReceivedMsg);
+        this.onReceiveData(data);
       });
 
     const plugin = this.#plugin;
@@ -78,11 +80,11 @@ export class Client<
   }
 
   async postMessage(data: PostMsg) {
-    await this.write(this.onSerialize(data));
+    await this.write(this.onWriteData(this.onSerialize(data)));
     return this;
   }
 
-  onSerialize(data: PostMsg | ReceivedMsg): Buffer {
+  onSerialize(data: IClientMessage): Buffer {
     let raw: string;
     if (typeof data !== "string") {
       raw = JSON.stringify(data);
@@ -91,13 +93,42 @@ export class Client<
     }
     return Buffer.from(raw, "utf8");
   }
-
-  onDeserialize(data: Buffer): PostMsg | ReceivedMsg {
+  onDeserialize(data: Buffer): IClientMessage {
     const raw: any = data.toString("utf8");
     try {
       return JSON.parse(raw);
     } catch {
       return raw;
+    }
+  }
+  protected onWriteData(data: Buffer) {
+    return Buffer.concat([data, Buffer.from("\f", "utf8")]);
+  }
+  protected currentBuffer: Buffer = Buffer.alloc(0);
+  protected onReceiveData(data: Buffer) {
+    const symbol = Buffer.from("\f", "utf8");
+
+    const idx = data.indexOf(symbol);
+    console.log(`received`, {
+      idx,
+      raw: JSON.stringify(data.toString("utf8")),
+    });
+
+    if (idx === -1) {
+      this.currentBuffer = Buffer.concat([this.currentBuffer, data]);
+      return;
+    }
+
+    const totalData = Buffer.concat([
+      this.currentBuffer,
+      data.subarray(0, idx),
+    ]);
+    this.currentBuffer = Buffer.alloc(0);
+    this.emit("message", this.onDeserialize(totalData) as ReceivedMsg);
+
+    const remain = data.subarray(idx + 1);
+    if (remain.length) {
+      this.onReceiveData(remain);
     }
   }
 }
