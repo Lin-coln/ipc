@@ -22,21 +22,21 @@ export class Client<
     this.#plugin = null;
   }
 
-  get remoteIdentifier() {
+  get remoteIdentifier(): string | null {
     if (!this.#plugin) return null;
     return this.#plugin.remoteIdentifier;
   }
   async connect(opts: IClientConnOpts) {
     let connOpts: any;
-
     if ("path" in opts) {
       connOpts = { path: opts.path } as net.IpcSocketConnectOpts;
       this.#plugin = new IpcClientPlugin({});
     }
-
     const plugin = this.#plugin!;
     await plugin
-      .on("error", (err) => this.emit("error", err))
+      .on("error", (err) => {
+        this.emit("error", err);
+      })
       .on("disconnect", () => {
         this.disconnect();
       })
@@ -55,19 +55,25 @@ export class Client<
     this.emit("disconnect");
     this.off();
   }
-  write(data: Buffer): boolean {
+
+  async write(data: Buffer) {
     if (!this.#plugin) throw new Error("Failed to write - plugin not found");
-    return this.#plugin.write(data);
+    await this.#plugin.write(data);
+    return this;
   }
-  postMessage(data: PostMsg): boolean {
-    return this.write(this.onSerialize(data));
+
+  async postMessage(data: PostMsg) {
+    await this.write(this.onSerialize(data));
+    return this;
   }
+
   onSerialize(data: IClientMessage): Buffer {
     if (typeof data !== "string") {
       data = JSON.stringify(data);
     }
     return Buffer.from(data, "utf8");
   }
+
   onDeserialize(data: Buffer): IClientMessage {
     const raw = data.toString("utf8");
     try {

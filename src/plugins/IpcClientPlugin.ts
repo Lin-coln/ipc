@@ -96,13 +96,25 @@ export class IpcClientPlugin
     return this;
   }
 
-  write(data: Buffer): boolean {
+  async write(data: Buffer): Promise<this> {
     if (this.socket.pending)
       // not connected
-      throw new Error(`failed to write - not connected`);
+      throw new Error(`[client] failed to write - not connected`);
 
     logger.log(`[client.socket] write`, data.toString("utf8"));
-    return this.socket.write(data);
+    const done = this.socket.write(data);
+    if (done) return this;
+
+    return new Promise((resolve, reject) => {
+      const handler: ClientEvents["disconnect"] = (ctx) => {
+        this.off("disconnect", handler);
+        reject(new Error(`[client] failed to write - disconnect`));
+      };
+      this.on("disconnect", handler);
+      this.socket.once("drain", () => {
+        this.write(data).then(resolve, reject);
+      });
+    });
   }
 }
 

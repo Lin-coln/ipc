@@ -96,7 +96,8 @@ async function executeClient() {
       client.connect(connOpts);
     } else if (key.name === "m") {
       console.log(`[press] message`);
-      client.write(Buffer.from(`${new Date().toISOString()} - hello`, "utf8"));
+      const message = `${new Date().toISOString()} - hello`;
+      client.write(Buffer.from(message, "utf8"));
     }
   });
 }

@@ -108,12 +108,25 @@ export class IpcServerPlugin
     return this;
   }
 
-  write(id: string, data: Buffer): boolean {
+  async write(id: string, data: Buffer): Promise<this> {
     const socket = this.sockets.get(id);
     if (!socket) {
       throw new Error(`[server] failed to write - socket not found: ${id}`);
     }
-    return socket.write(data);
+    const done = socket.write(data);
+    if (done) return this;
+
+    return new Promise((resolve, reject) => {
+      const handler: ServerEvents["disconnect"] = (ctx) => {
+        if (ctx.id !== id) return;
+        this.off("disconnect", handler);
+        reject(new Error(`[server] failed to write - disconnect`));
+      };
+      this.on("disconnect", handler);
+      socket.once("drain", () => {
+        this.write(id, data).then(resolve, reject);
+      });
+    });
   }
 }
 

@@ -15,7 +15,7 @@ export interface ClientPlugin<ConnOpts> extends EventBus<ClientEvents> {
   readonly remoteIdentifier: string | null;
   connect(opts: ConnOpts): Promise<this>;
   disconnect(): Promise<this>;
-  write(data: Buffer): boolean;
+  write(data: Buffer): Promise<this>;
 }
 
 export interface ServerEvents {
@@ -31,7 +31,7 @@ export interface ServerPlugin<ListenOpts> extends EventBus<ServerEvents> {
   listen(opts: ListenOpts): Promise<this>;
   close(): Promise<this>;
   disconnect(id: string): Promise<this>;
-  write(id: string, data: Buffer): boolean;
+  write(id: string, data: Buffer): Promise<this>;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -51,8 +51,8 @@ export interface IClient<
   readonly remoteIdentifier: string | null;
   connect(opts: IClientConnOpts): Promise<this>;
   disconnect(err?: Error): Promise<void>;
-  write(data: Buffer): boolean;
-  postMessage(data: PostMsg): boolean;
+  write(data: Buffer): Promise<this>;
+  postMessage(data: PostMsg): Promise<this>;
   onDeserialize(data: Buffer): IClientMessage;
   onSerialize(data: IClientMessage): Buffer;
 }
