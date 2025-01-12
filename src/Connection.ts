@@ -7,8 +7,15 @@ import {
   IClientEvents,
   IClientMessage,
 } from "@interfaces/index";
+import wrapSinglePromise from "@utils/wrapSinglePromise";
 
 type PresetClientPlugin = IpcClientPlugin;
+type PresetClientParams = {
+  type: "ipc";
+  class: typeof IpcClientPlugin;
+  connOpts: Parameters<IpcClientPlugin["connect"]>[0];
+};
+
 export class Client<
     PostMsg extends IClientMessage = IClientMessage,
     ReceivedMsg extends IClientMessage = PostMsg,
@@ -20,45 +27,53 @@ export class Client<
   constructor() {
     super();
     this.#plugin = null;
+    this.connect = wrapSinglePromise(this.connect);
+    this.disconnect = wrapSinglePromise(this.disconnect);
   }
 
   get remoteIdentifier(): string | null {
-    if (!this.#plugin) return null;
-    return this.#plugin.remoteIdentifier;
+    return this.#plugin?.remoteIdentifier ?? null;
   }
+
   async connect(opts: IClientConnOpts) {
-    let connOpts: any;
-    if ("path" in opts) {
-      connOpts = { path: opts.path } as net.IpcSocketConnectOpts;
-      this.#plugin = new IpcClientPlugin({});
-    }
-    const plugin = this.#plugin!;
-    await plugin
+    if (this.#plugin !== null) return this;
+
+    const params = parseClientConnOpts(opts);
+    this.#plugin = new params.class({})
       .on("error", (err) => {
         this.emit("error", err);
       })
-      .on("disconnect", () => {
-        this.disconnect();
+      .on("disconnect", (ctx) => {
+        if (!ctx.passive) return;
+        this.#plugin = null;
+        plugin.off();
+        this.emit("disconnect", ctx);
       })
       .on("data", (data) => {
         this.emit("message", this.onDeserialize(data) as ReceivedMsg);
-      })
-      .connect(connOpts);
+      });
+
+    const plugin = this.#plugin;
+    await plugin.connect(params.connOpts as any);
     this.emit("connect");
+
     return this;
   }
+
   async disconnect() {
-    if (!this.#plugin)
-      throw new Error("Failed to disconnect - plugin not found");
-    await this.#plugin.disconnect();
+    if (this.#plugin === null) return this;
+    const plugin = this.#plugin!;
+    const identifier = this.remoteIdentifier!;
+
     this.#plugin = null;
-    this.emit("disconnect");
-    this.off();
+    await plugin.disconnect();
+    this.emit("disconnect", { identifier, passive: false });
+    return this;
   }
 
   async write(data: Buffer) {
-    if (!this.#plugin) throw new Error("Failed to write - plugin not found");
-    await this.#plugin.write(data);
+    const plugin = this.#plugin!;
+    await plugin.write(data);
     return this;
   }
 
@@ -67,19 +82,41 @@ export class Client<
     return this;
   }
 
-  onSerialize(data: IClientMessage): Buffer {
+  onSerialize(data: PostMsg | ReceivedMsg): Buffer {
+    let raw: string;
     if (typeof data !== "string") {
-      data = JSON.stringify(data);
+      raw = JSON.stringify(data);
+    } else {
+      raw = data;
     }
-    return Buffer.from(data, "utf8");
+    return Buffer.from(raw, "utf8");
   }
 
-  onDeserialize(data: Buffer): IClientMessage {
-    const raw = data.toString("utf8");
+  onDeserialize(data: Buffer): PostMsg | ReceivedMsg {
+    const raw: any = data.toString("utf8");
     try {
       return JSON.parse(raw);
     } catch {
       return raw;
     }
   }
+}
+
+function parseClientConnOpts(opts: IClientConnOpts): PresetClientParams {
+  let type: PresetClientParams["type"];
+  let clazz: PresetClientParams["class"];
+  let connOpts: PresetClientParams["connOpts"];
+  if ("path" in opts) {
+    type = "ipc";
+    clazz = IpcClientPlugin;
+    connOpts = { path: opts.path } as net.IpcSocketConnectOpts;
+  } else {
+    throw new Error(`failed to parse ClientConnOpts`);
+  }
+
+  return {
+    type,
+    class: clazz,
+    connOpts,
+  };
 }

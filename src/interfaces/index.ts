@@ -6,7 +6,7 @@ export interface Logger {
 
 export interface ClientEvents {
   error(err: Error): void;
-  disconnect(ctx: { passive: boolean }): void;
+  disconnect(ctx: { identifier: string; passive: boolean }): void;
   connect(): void;
   data(data: Buffer): void;
 }
@@ -34,14 +34,10 @@ export interface ServerPlugin<ListenOpts> extends EventBus<ServerEvents> {
   write(id: string, data: Buffer): Promise<this>;
 }
 
-///////////////////////////////////////////////////////////////////////////////////////
-
 export type IClientConnOpts = { path: string };
 export type IClientMessage = object | string;
-export interface IClientEvents<ReceivedMsg = IClientMessage> {
-  error(err: Error): void;
-  disconnect(err?: Error): void;
-  connect(): void;
+export interface IClientEvents<ReceivedMsg = IClientMessage>
+  extends ClientEvents {
   message(message: ReceivedMsg): void;
 }
 export interface IClient<
@@ -50,9 +46,9 @@ export interface IClient<
 > extends EventBus<IClientEvents<ReceivedMsg>> {
   readonly remoteIdentifier: string | null;
   connect(opts: IClientConnOpts): Promise<this>;
-  disconnect(err?: Error): Promise<void>;
+  disconnect(): Promise<this>;
   write(data: Buffer): Promise<this>;
   postMessage(data: PostMsg): Promise<this>;
-  onDeserialize(data: Buffer): IClientMessage;
-  onSerialize(data: IClientMessage): Buffer;
+  onDeserialize(data: Buffer): PostMsg | ReceivedMsg;
+  onSerialize(data: PostMsg | ReceivedMsg): Buffer;
 }

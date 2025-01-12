@@ -12,10 +12,12 @@ export class IpcClientPlugin
   extends EventBus<ClientEvents>
   implements ClientPlugin<net.IpcSocketConnectOpts>
 {
+  state: "disconnected" | "connecting" | "connected" | "disconnecting";
   socket: net.Socket;
   connOpts: net.IpcSocketConnectOpts | null;
   constructor(opts: net.SocketConstructorOpts) {
     super();
+    this.state = "disconnected";
     this.socket = new net.Socket(opts);
     this.connOpts = null;
     enhanceClient.call(this);
@@ -25,7 +27,7 @@ export class IpcClientPlugin
 
   get remoteIdentifier(): string | null {
     if (!this.connOpts) return null;
-    return `pipe::${this.connOpts.path}`;
+    return `pipe://${this.connOpts.path}`;
   }
 
   async connect(opts: net.IpcSocketConnectOpts): Promise<this> {
@@ -92,7 +94,9 @@ export class IpcClientPlugin
     logger.log(`[client.socket] destroying`);
     this.socket.destroy();
     logger.log(`[client] emit disconnect`);
-    this.emit("disconnect", { passive: false });
+    const identifier = this.remoteIdentifier!;
+    this.connOpts = null;
+    this.emit("disconnect", { identifier, passive: false });
     return this;
   }
 
@@ -156,5 +160,7 @@ function handleSocketClose(this: IpcClientPlugin, hadError: boolean) {
   logger.log(`[client.socket] destroying`);
   this.socket.destroy();
   logger.log(`[client] emit disconnect`);
-  this.emit("disconnect", { passive: true });
+  const identifier = this.remoteIdentifier!;
+  this.connOpts = null;
+  this.emit("disconnect", { identifier, passive: true });
 }
