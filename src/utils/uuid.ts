@@ -6,5 +6,7 @@ export const uuid = (() => {
     crypto
       .createHash("md5")
       .update((Math.round(Math.random() * 1024) + gid++).toString(), "utf-8")
-      .digest("hex");
+      .digest("hex")
+      .toString()
+      .slice(0, 6);
 })();

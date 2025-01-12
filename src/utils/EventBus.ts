@@ -62,7 +62,7 @@ export default class EventBus<
     const set = this.#listeners.get(type);
     if (!set || !set.size) return false;
     set.values().forEach((listener) => {
-      this.off(type, listener);
+      if (listener[ListenerFlag.Once]) this.off(type, listener);
       listener(...args);
     });
     return true;

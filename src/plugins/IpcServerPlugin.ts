@@ -1,0 +1,178 @@
+import net from "node:net";
+import fs from "node:fs";
+import process from "node:process";
+import { Logger, ServerEvents, ServerPlugin } from "@interfaces/index";
+import EventBus from "@utils/EventBus";
+import { createPromise } from "@utils/promise";
+import useCleanup from "@utils/useCleanup";
+import { uuid } from "@utils/uuid";
+import fixPipeName from "@utils/fixPipeName";
+import wrapSinglePromise from "@utils/wrapSinglePromise";
+
+// const logger: Logger = console;
+const logger: Logger = { log() {} };
+
+export class IpcServerPlugin
+  extends EventBus<ServerEvents>
+  implements ServerPlugin<net.ListenOptions>
+{
+  server: net.Server;
+  sockets: Map<string, net.Socket>;
+  constructor(opts: net.ServerOpts) {
+    super();
+    this.server = new net.Server(opts);
+    this.sockets = new Map();
+    enhanceServer.call(this);
+
+    this.listen = wrapSinglePromise(this.listen);
+    this.disconnect = wrapSinglePromise(this.disconnect, (id) => id);
+    this.close = wrapSinglePromise(this.close);
+  }
+
+  async listen(opts: net.ListenOptions): Promise<this> {
+    if (this.server.listening) return this;
+
+    await new Promise<void>((resolve, reject) => {
+      try {
+        if (this.server.listening)
+          throw new Error(`failed to listen - listening`);
+        logger.log(`[server.server] listen...`);
+        this.server.on("error", reject).on("listening", resolve).listen(opts);
+      } catch (e) {
+        reject(e);
+      }
+    }).finally(() => {
+      this.server.removeAllListeners();
+    });
+
+    this.server
+      .on("error", (err) => {
+        logger.log(
+          `[server.server] error`,
+          "code" in err ? err.code : err.message,
+        );
+        // todo: handle error
+        logger.log(`[server] emit error`);
+        this.emit("error", err);
+      })
+      .on("close", () => {
+        logger.log(`[server.server] close`);
+        this.server.removeAllListeners();
+        logger.log(`[server] emit close`);
+        this.emit("close");
+      })
+      // todo: listening-connection issue
+      .on("connection", handleSocketConnection.bind(this));
+    logger.log(`[server] emit listening`);
+    this.emit("listening");
+    return this;
+  }
+
+  async disconnect(id: string): Promise<this> {
+    const socket = this.sockets.get(id);
+    if (!socket) {
+      // throw new Error(`failed to disconnect - socket not found: ${id}`);
+      return this;
+    }
+    this.sockets.delete(id);
+
+    if (socket.closed) return this;
+    socket.removeAllListeners();
+    await new Promise<void>((resolve, reject) => {
+      try {
+        logger.log(`[server.socket] ending`);
+        socket.end(resolve);
+      } catch (e) {
+        reject(e);
+      }
+    });
+    logger.log(`[server.socket] destroying`);
+    socket.destroy();
+    logger.log(`[server] emit disconnect`, id);
+    this.emit("disconnect", { id, passive: false });
+    return this;
+  }
+
+  async close(): Promise<this> {
+    if (!this.server.listening) return this;
+    this.server.removeAllListeners();
+    const closePromise = new Promise<void>((resolve, reject) => {
+      logger.log(`[server.server] closing`);
+      this.server.close((err) => (err ? reject(err) : resolve()));
+      logger.log("detect listening", this.server.listening);
+    });
+    const socketIdList = Array.from(this.sockets.keys());
+    await Promise.all(socketIdList.map((id) => this.disconnect(id)));
+    await closePromise;
+    this.emit("close");
+    return this;
+  }
+
+  write(id: string, data: Buffer): boolean {
+    const socket = this.sockets.get(id);
+    if (!socket) {
+      throw new Error(`[server] failed to write - socket not found: ${id}`);
+    }
+    return socket.write(data);
+  }
+}
+
+function enhanceServer(this: IpcServerPlugin) {
+  const listen = this.listen;
+  this.listen = function (this: IpcServerPlugin, opts: net.ListenOptions) {
+    let sockPath = opts.path;
+    if (!sockPath) return listen.call(this, opts);
+
+    sockPath = fixPipeName(sockPath);
+
+    // wrap clear sock file
+    const clearSock = () =>
+      process.platform !== "win32" &&
+      fs.existsSync(sockPath) &&
+      fs.unlinkSync(sockPath);
+    return listen
+      .call(this, { ...opts, path: sockPath })
+      .then((res) => {
+        useCleanup(clearSock);
+        return res;
+      })
+      .catch((e) => {
+        clearSock();
+        throw e;
+      });
+  };
+}
+
+function handleSocketConnection(this: IpcServerPlugin, socket: net.Socket) {
+  const id = uuid();
+  logger.log(`[server.socket] connection`, id);
+
+  socket
+    .on("error", (err) => {
+      logger.log(
+        `[server.socket] error`,
+        "code" in err ? err.code : err.message,
+      );
+      logger.log(`[server] emit error`);
+      this.emit("error", err);
+    })
+    .on("close", (hadError: boolean) => {
+      logger.log(`[server.socket] close`);
+      if (hadError) return;
+
+      this.sockets.delete(id);
+      socket.removeAllListeners();
+      logger.log(`[server.socket] destroying`);
+      socket.destroy();
+      logger.log(`[server] emit disconnect`, id);
+      this.emit("disconnect", { id, passive: true });
+    })
+    .on("data", (data) => {
+      logger.log(`[server.socket] data`, data.toString("utf8"));
+      logger.log(`[server] emit data`);
+      this.emit("data", id, data);
+    });
+  this.sockets.set(id, socket);
+  logger.log(`[server] emit connect`);
+  this.emit("connect", id);
+}
