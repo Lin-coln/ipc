@@ -1,47 +1,47 @@
 import process from "node:process";
 
-const map = new WeakMap();
-
-export default function useCleanup(cb: () => unknown, target?: NodeJS.Process) {
-  target ??= process;
-  if (!map.has(target)) {
-    map.set(target, new Set());
-    setupCleanup(target);
+export default function useCleanup(callback: () => void): void {
+  if (typeof callback !== "function") {
+    throw new TypeError("Callback must be a function");
   }
-  const callbacks = map.get(target);
-  callbacks.add(cb);
-}
 
-function setupCleanup(process) {
-  process.on("SIGINT", async () => {
-    await cleanup();
-    if (process.exit) {
+  const cleanup = () => {
+    try {
+      callback();
+    } catch (err) {
+      console.error("Error during cleanup:", err);
+    }
+  };
+
+  const signals: NodeJS.Signals[] = [
+    "SIGINT", // Ctrl+C
+    "SIGTERM", // Termination signal
+    "SIGHUP", // Terminal is closed
+  ];
+
+  signals.forEach((signal) => {
+    process.on(signal, () => {
+      console.log(`exit signal: ${signal}`);
+      cleanup();
       process.exit(0);
-    } else {
-      process.kill(0);
-    }
+    });
   });
-  process.on("SIGTERM", async () => {
-    await cleanup();
-    if (process.exit) {
-      process.exit(0);
-    } else {
-      process.kill(0);
-    }
+
+  process.on("uncaughtException", (err) => {
+    console.error("Uncaught exception:", err);
+    cleanup();
+    process.exit(1);
   });
-  process.on("uncaughtException", async (error) => {
-    console.error(error);
-    await cleanup();
-    if (process.exit) {
-      process.exit(1);
-    } else {
-      process.kill(1);
-    }
+
+  process.on("unhandledRejection", (reason) => {
+    console.error("Unhandled rejection:", reason);
+    cleanup();
+    process.exit(1);
   });
-  async function cleanup() {
-    if (!map.has(process)) return;
-    for (const callback of map.get(process)) {
-      await callback();
-    }
-  }
+
+  // 当进程正常退出时清理
+  process.on("exit", () => {
+    console.log(`exit`);
+    cleanup();
+  });
 }

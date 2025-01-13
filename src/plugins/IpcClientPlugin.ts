@@ -4,6 +4,7 @@ import EventBus from "@utils/EventBus";
 import wrapRetry from "@utils/wrapRetry";
 import fixPipeName from "@utils/fixPipeName";
 import wrapSinglePromise from "@utils/wrapSinglePromise";
+import { QueueHub } from "@utils/Queue";
 
 // const logger: Logger = console;
 const logger: Logger = { log() {} };
@@ -12,15 +13,18 @@ export class IpcClientPlugin
   extends EventBus<ClientEvents>
   implements ClientPlugin<net.IpcSocketConnectOpts>
 {
+  queueHub: QueueHub;
   socket: net.Socket;
   connOpts: net.IpcSocketConnectOpts | null;
   constructor(opts: net.SocketConstructorOpts) {
     super();
+    this.queueHub = new QueueHub();
     this.socket = new net.Socket(opts);
     this.connOpts = null;
     enhanceClient.call(this);
     this.connect = wrapSinglePromise(this.connect);
     this.disconnect = wrapSinglePromise(this.disconnect);
+    this.write = this.queueHub.wrapQueue(this.write, () => "write");
   }
 
   get remoteIdentifier(): string | null {
@@ -48,6 +52,15 @@ export class IpcClientPlugin
       this.socket.removeAllListeners();
     });
 
+    const handleData = this.queueHub.wrapQueue(
+      async (data: Buffer) => {
+        logger.log(`[client.socket] data`, data.toString("utf8"));
+        logger.log(`[client] emit data`);
+        this.emit("data", data);
+      },
+      () => "read",
+    );
+
     this.socket
       .on("error", (err) => {
         logger.log(
@@ -58,14 +71,19 @@ export class IpcClientPlugin
         logger.log(`[client] emit error`);
         this.emit("error", err);
       })
-      .on("close", handleSocketClose.bind(this))
+      .on("close", (hadError: boolean) => {
+        logger.log(`[client.socket] close`, { hadError });
+        if (hadError) return;
+        const identifier = this.remoteIdentifier!;
+        this.queueHub.clear("write");
+        this.queueHub.clear("read");
+        handleClientDisconnected.call(this);
+        logger.log(`[client] emit disconnect`);
+        this.emit("disconnect", { identifier, passive: true });
+      })
       // todo: connect-data issue
-      .on("data", (data) => {
-        logger.log(`[client.socket] data`, data.toString("utf8"));
-        logger.log(`[client] emit data`);
-        this.emit("data", data);
-      });
-    this.connOpts = opts;
+      .on("data", handleData);
+    handleClientConnected.call(this, opts);
     logger.log(`[client] emit connect`, this.remoteIdentifier);
     this.emit("connect");
 
@@ -81,6 +99,8 @@ export class IpcClientPlugin
   async disconnect(): Promise<this> {
     if (this.socket.closed) return this;
     this.socket.removeAllListeners();
+    this.queueHub.clear("write");
+    this.queueHub.clear("read");
     await new Promise<void>((resolve, reject) => {
       try {
         logger.log(`[client.socket] ending`);
@@ -89,11 +109,9 @@ export class IpcClientPlugin
         reject(e);
       }
     });
-    logger.log(`[client.socket] destroying`);
-    this.socket.destroy();
-    logger.log(`[client] emit disconnect`);
     const identifier = this.remoteIdentifier!;
-    this.connOpts = null;
+    handleClientDisconnected.call(this);
+    logger.log(`[client] emit disconnect`);
     this.emit("disconnect", { identifier, passive: false });
     return this;
   }
@@ -170,19 +188,16 @@ function enhanceClient(this: IpcClientPlugin) {
   });
 }
 
-/**
- * 1. removeAllListeners
- * 2. destroy
- * 3. emit disconnect
- */
-function handleSocketClose(this: IpcClientPlugin, hadError: boolean) {
-  logger.log(`[client.socket] close`, { hadError });
-  if (hadError) return;
+function handleClientConnected(
+  this: IpcClientPlugin,
+  opts: net.IpcSocketConnectOpts,
+) {
+  this.connOpts = opts;
+}
+
+function handleClientDisconnected(this: IpcClientPlugin) {
   this.socket.removeAllListeners();
   logger.log(`[client.socket] destroying`);
   this.socket.destroy();
-  logger.log(`[client] emit disconnect`);
-  const identifier = this.remoteIdentifier!;
   this.connOpts = null;
-  this.emit("disconnect", { identifier, passive: true });
 }

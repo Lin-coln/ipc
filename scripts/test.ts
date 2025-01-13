@@ -3,6 +3,7 @@ import path from "path";
 import url from "node:url";
 import * as readline from "node:readline";
 import process from "node:process";
+import fs from "node:fs";
 
 const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,6 +22,8 @@ async function main() {
 }
 
 async function executeServer() {
+  if (fs.existsSync(pipeFilename)) fs.unlinkSync(pipeFilename);
+
   let socketId: string;
   const listenOpts = { path: pipeFilename };
   const server = await new ipc.IpcServerPlugin({})

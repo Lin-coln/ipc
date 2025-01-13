@@ -8,13 +8,17 @@ import {
   IClientMessage,
 } from "@interfaces/index";
 import wrapSinglePromise from "@utils/wrapSinglePromise";
-import { createLoop } from "@utils/Loop";
 
 type PresetClientPlugin = IpcClientPlugin;
 type PresetClientParams = {
   type: "ipc";
   class: typeof IpcClientPlugin;
   connOpts: Parameters<IpcClientPlugin["connect"]>[0];
+};
+
+type DataInterceptor = {
+  onEncode: (data: Buffer) => Buffer;
+  onDecode: (data: Buffer) => Buffer;
 };
 
 export class Client<
@@ -25,10 +29,13 @@ export class Client<
   implements IClient<PostMsg, ReceivedMsg>
 {
   #plugin: PresetClientPlugin | null;
+
+  interceptors: DataInterceptor[];
+
   constructor() {
     super();
     this.#plugin = null;
-
+    this.interceptors = [];
     this.connect = wrapSinglePromise(this.connect);
     this.disconnect = wrapSinglePromise(this.disconnect);
   }
@@ -52,7 +59,7 @@ export class Client<
         this.emit("disconnect", ctx);
       })
       .on("data", (data) => {
-        this.onReceiveData(data);
+        // this.onReceiveData(data);
       });
 
     const plugin = this.#plugin;
@@ -73,64 +80,75 @@ export class Client<
     return this;
   }
 
-  async write(data: Buffer) {
-    const plugin = this.#plugin!;
-    await plugin.write(data);
-    return this;
-  }
+  // DelimiterBasedFrameDecode
 
-  async postMessage(data: PostMsg) {
-    await this.write(this.onWriteData(this.onSerialize(data)));
-    return this;
-  }
+  /**
+   * - postMessage(msg:PostMsg);
+   * - write(frame:Buffer);
+   * - write(data:Buffer);
+   * - read(data:Buffer);
+   * - read(frame:Buffer);
+   * - receiveMessage(msg:ReceivedMsg);
+   */
 
-  onSerialize(data: IClientMessage): Buffer {
-    let raw: string;
-    if (typeof data !== "string") {
-      raw = JSON.stringify(data);
-    } else {
-      raw = data;
-    }
-    return Buffer.from(raw, "utf8");
-  }
-  onDeserialize(data: Buffer): IClientMessage {
-    const raw: any = data.toString("utf8");
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return raw;
-    }
-  }
-  protected onWriteData(data: Buffer) {
-    return Buffer.concat([data, Buffer.from("\f", "utf8")]);
-  }
-  protected currentBuffer: Buffer = Buffer.alloc(0);
-  protected onReceiveData(data: Buffer) {
-    const symbol = Buffer.from("\f", "utf8");
+  // async write(data: Buffer) {
+  //   const plugin = this.#plugin!;
+  //   await plugin.write(data);
+  //   return this;
+  // }
 
-    const idx = data.indexOf(symbol);
-    console.log(`received`, {
-      idx,
-      raw: JSON.stringify(data.toString("utf8")),
-    });
+  // async postMessage(data: PostMsg) {
+  //   await this.write(this.onWriteData(this.onSerialize(data)));
+  //   return this;
+  // }
 
-    if (idx === -1) {
-      this.currentBuffer = Buffer.concat([this.currentBuffer, data]);
-      return;
-    }
+  // onSerialize(data: IClientMessage): Buffer {
+  //   let raw: string;
+  //   if (typeof data !== "string") {
+  //     raw = JSON.stringify(data);
+  //   } else {
+  //     raw = data;
+  //   }
+  //   return Buffer.from(raw, "utf8");
+  // }
 
-    const totalData = Buffer.concat([
-      this.currentBuffer,
-      data.subarray(0, idx),
-    ]);
-    this.currentBuffer = Buffer.alloc(0);
-    this.emit("message", this.onDeserialize(totalData) as ReceivedMsg);
+  // onDeserialize(data: Buffer): IClientMessage {
+  //   const raw: any = data.toString("utf8");
+  //   try {
+  //     return JSON.parse(raw);
+  //   } catch {
+  //     return raw;
+  //   }
+  // }
 
-    const remain = data.subarray(idx + 1);
-    if (remain.length) {
-      this.onReceiveData(remain);
-    }
-  }
+  // protected onWriteData(data: Buffer) {
+  //   return Buffer.concat([data, Buffer.from("\f", "utf8")]);
+  // }
+
+  // protected currentBuffer: Buffer = Buffer.alloc(0);
+
+  // protected onReceiveData(data: Buffer) {
+  //   const symbol = Buffer.from("\f", "utf8");
+  //
+  //   const idx = data.indexOf(symbol);
+  //
+  //   if (idx === -1) {
+  //     this.currentBuffer = Buffer.concat([this.currentBuffer, data]);
+  //     return;
+  //   }
+  //
+  //   const totalData = Buffer.concat([
+  //     this.currentBuffer,
+  //     data.subarray(0, idx),
+  //   ]);
+  //   this.currentBuffer = Buffer.alloc(0);
+  //   this.emit("message", this.onDeserialize(totalData) as ReceivedMsg);
+  //
+  //   const remain = data.subarray(idx + 1);
+  //   if (remain.length) {
+  //     this.onReceiveData(remain);
+  //   }
+  // }
 }
 
 function parseClientConnOpts(opts: IClientConnOpts): PresetClientParams {

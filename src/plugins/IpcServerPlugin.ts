@@ -3,11 +3,11 @@ import fs from "node:fs";
 import process from "node:process";
 import { Logger, ServerEvents, ServerPlugin } from "@interfaces/index";
 import EventBus from "@utils/EventBus";
-import { createPromise } from "@utils/promise";
 import useCleanup from "@utils/useCleanup";
 import { uuid } from "@utils/uuid";
 import fixPipeName from "@utils/fixPipeName";
 import wrapSinglePromise from "@utils/wrapSinglePromise";
+import { QueueHub } from "@utils/Queue";
 
 // const logger: Logger = console;
 const logger: Logger = { log() {} };
@@ -16,17 +16,19 @@ export class IpcServerPlugin
   extends EventBus<ServerEvents>
   implements ServerPlugin<net.ListenOptions>
 {
+  queueHub: QueueHub;
   server: net.Server;
   sockets: Map<string, net.Socket>;
   constructor(opts: net.ServerOpts) {
     super();
+    this.queueHub = new QueueHub();
     this.server = new net.Server(opts);
     this.sockets = new Map();
     enhanceServer.call(this);
-
     this.listen = wrapSinglePromise(this.listen);
     this.disconnect = wrapSinglePromise(this.disconnect, (id) => id);
     this.close = wrapSinglePromise(this.close);
+    this.write = this.queueHub.wrapQueue(this.write, (id) => `write_${id}`);
   }
 
   async listen(opts: net.ListenOptions): Promise<this> {
@@ -75,6 +77,8 @@ export class IpcServerPlugin
       return this;
     }
     this.sockets.delete(id);
+    this.queueHub.clear(`write_${id}`);
+    this.queueHub.clear(`read_${id}`);
 
     if (socket.closed) return this;
     socket.removeAllListeners();
@@ -160,6 +164,15 @@ function handleSocketConnection(this: IpcServerPlugin, socket: net.Socket) {
   const id = uuid();
   logger.log(`[server.socket] connection`, id);
 
+  const handleData = this.queueHub.wrapQueue(
+    async (data: Buffer) => {
+      logger.log(`[server.socket] data`, data.toString("utf8"));
+      logger.log(`[server] emit data`);
+      this.emit("data", id, data);
+    },
+    () => `read_${id}`,
+  );
+
   socket
     .on("error", (err) => {
       logger.log(
@@ -174,17 +187,15 @@ function handleSocketConnection(this: IpcServerPlugin, socket: net.Socket) {
       if (hadError) return;
 
       this.sockets.delete(id);
+      this.queueHub.clear(`write_${id}`);
+      this.queueHub.clear(`read_${id}`);
       socket.removeAllListeners();
       logger.log(`[server.socket] destroying`);
       socket.destroy();
       logger.log(`[server] emit disconnect`, id);
       this.emit("disconnect", { id, passive: true });
     })
-    .on("data", (data) => {
-      logger.log(`[server.socket] data`, data.toString("utf8"));
-      logger.log(`[server] emit data`);
-      this.emit("data", id, data);
-    });
+    .on("data", handleData);
   this.sockets.set(id, socket);
   logger.log(`[server] emit connect`);
   this.emit("connect", id);
