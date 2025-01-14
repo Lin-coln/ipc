@@ -4,10 +4,10 @@ export default function wrapSinglePromise<
   R extends any,
 >(
   fn: (this: This, ...args: Args) => Promise<R>,
-  resolveId?: (this: This, ...args: Args) => string,
+  onResolveId?: (this: This, ...args: Args) => string,
 ): (this: This, ...args: Args) => Promise<R> {
   const promises: Map<string, Promise<R>> = new Map();
-  const resolver = resolveId ?? (() => "default");
+  const resolver = !onResolveId ? () => "default" : onResolveId;
 
   return function (this: This, ...args: Args) {
     const id: string = resolver.apply(this, args);

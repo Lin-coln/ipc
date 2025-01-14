@@ -3,57 +3,39 @@ import wrapRetry from "../../src/utils/wrapRetry";
 
 describe("wrapRetry basic functionality", () => {
   test.concurrent("should retry on error", async () => {
-    // 独立的 mock 函数
-    const mockOnExecute = vi.fn();
-    const mockOnCheck = vi.fn().mockResolvedValue(true); // Always retry on error
+    const mockOnExecute = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Test Error")) // First call rejects
+      .mockResolvedValueOnce("success"); // Second call resolves successfully
+    const mockOnCheck = vi.fn().mockResolvedValue(true);
     const mockBeforeRetry = vi.fn();
 
-    // 初始化 wrappedFn
     const wrappedFn = wrapRetry({
       onExecute: mockOnExecute,
       onCheck: mockOnCheck,
       beforeRetry: mockBeforeRetry,
-      times: 3,
-      delay: 100,
+      delay: 10,
     });
 
-    mockOnExecute
-      .mockRejectedValueOnce(new Error("Test Error")) // First call rejects
-      .mockResolvedValueOnce("success"); // Second call resolves successfully
-
-    const result = wrappedFn();
-    await expect(result).resolves.toBe("success"); // Expect the final result to be 'success'
+    await expect(wrappedFn()).resolves.toBe("success"); // Expect the final result to be 'success'
     expect(mockOnExecute).toHaveBeenCalledTimes(2); // First call fails, second call succeeds
     expect(mockOnCheck).toHaveBeenCalledTimes(1); // Only called once before retrying
     expect(mockBeforeRetry).toHaveBeenCalledTimes(1); // Called once before retrying
   });
 
   test.concurrent("should throw error if retries exceed", async () => {
-    // 独立的 mock 函数
-    const mockOnExecute = vi.fn();
-    const mockOnCheck = vi.fn().mockResolvedValue(true); // Always retry on error
     const mockBeforeRetry = vi.fn();
+    const mockOnCheck = vi.fn().mockReturnValue(true);
+    const mockOnExecute = vi.fn().mockRejectedValue(new Error("Test Error"));
 
-    // 初始化 wrappedFn
     const wrappedFn = wrapRetry({
       onExecute: mockOnExecute,
       onCheck: mockOnCheck,
       beforeRetry: mockBeforeRetry,
-      times: 3, // 最大重试次数
-      delay: 500,
+      times: 3, // retry 3 times
+      delay: 10,
     });
 
-    // 模拟每次都失败
-    mockOnExecute.mockRejectedValue(new Error("Test Error"));
-
-    // mockOnCheck: 在最大重试次数后返回 false，表示停止重试
-    mockOnCheck
-      .mockResolvedValueOnce(true) // 初次执行，继续重试
-      .mockResolvedValueOnce(true) // 第一次重试，继续重试
-      .mockResolvedValueOnce(true) // 第二次重试，继续重试
-      .mockResolvedValueOnce(false); // 第三次重试，返回 false，停止重试
-
-    // 调用 wrappedFn 并检查是否抛出错误
     await expect(wrappedFn()).rejects.toThrow("Test Error");
 
     // 验证 onExecute 是否被调用了 4 次（包括初次执行和 3 次重试）
@@ -65,9 +47,9 @@ describe("wrapRetry basic functionality", () => {
     "should handle no retries if onCheck returns false",
     async () => {
       // 独立的 mock 函数
-      const mockOnExecute = vi.fn();
-      const mockOnCheck = vi.fn().mockResolvedValueOnce(false); // Don't retry
       const mockBeforeRetry = vi.fn();
+      const mockOnExecute = vi.fn().mockRejectedValue(new Error("Test Error"));
+      const mockOnCheck = vi.fn().mockReturnValue(false); // Don't retry
 
       // 初始化 wrappedFn
       const wrappedFn = wrapRetry({
@@ -75,12 +57,9 @@ describe("wrapRetry basic functionality", () => {
         onCheck: mockOnCheck,
         beforeRetry: mockBeforeRetry,
         times: 3,
-        delay: 500,
+        delay: 10,
       });
 
-      mockOnExecute.mockRejectedValueOnce(new Error("Test Error"));
-
-      // 调用 wrappedFn 并检查是否抛出错误
       await expect(wrappedFn()).rejects.toThrow("Test Error");
 
       // 验证 onExecute 是否只被调用了 1 次（没有重试）
@@ -90,31 +69,29 @@ describe("wrapRetry basic functionality", () => {
   );
 
   test.concurrent("should allow custom beforeRetry logic", async () => {
-    // 独立的 mock 函数
-    const mockOnExecute = vi.fn();
-    const mockOnCheck = vi.fn().mockResolvedValue(true); // Always retry on error
     const mockBeforeRetry = vi.fn();
+    const mockOnCheck = vi.fn().mockResolvedValue(true); // Always retry on error
+    const mockOnExecute = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Test Error"))
+      .mockResolvedValueOnce("success");
 
     // 初始化 wrappedFn
     const wrappedFn = wrapRetry({
       onExecute: mockOnExecute,
       onCheck: mockOnCheck,
       beforeRetry: mockBeforeRetry,
-      times: 2,
-      delay: 500,
+      times: 1,
+      delay: 10,
     });
-
-    mockOnExecute
-      .mockRejectedValueOnce(new Error("Test Error"))
-      .mockResolvedValueOnce("success");
 
     // 调用 wrappedFn 并等待重试
     const result = wrappedFn();
-    await sleep(1000); // 等待重试逻辑执行
+    await sleep(20);
     expect(mockBeforeRetry).toHaveBeenCalledWith({
       error: expect.any(Error),
       count: 1,
-      times: 2,
+      times: 1,
     });
     await expect(result).resolves.toBe("success");
   });
@@ -122,21 +99,16 @@ describe("wrapRetry basic functionality", () => {
   test.concurrent(
     "should use default 'times' value when not provided",
     async () => {
-      const mockOnExecute = vi.fn();
+      const mockOnExecute = vi.fn().mockRejectedValue(new Error("Test Error"));
       const mockOnCheck = vi.fn().mockResolvedValue(true); // Always retry on error
       const mockBeforeRetry = vi.fn();
-
       const wrappedFn = wrapRetry({
         onExecute: mockOnExecute,
         onCheck: mockOnCheck,
         beforeRetry: mockBeforeRetry,
         delay: 10,
       });
-
-      mockOnExecute.mockRejectedValue(new Error("Test Error"));
-
       await expect(wrappedFn()).rejects.toThrow("Test Error");
-
       expect(mockOnExecute).toHaveBeenCalledTimes(31); // 初次执行 + 30 次重试
     },
   );
@@ -147,21 +119,19 @@ describe("wrapRetry basic functionality", () => {
       const mockOnExecute = vi.fn();
       const mockOnCheck = vi.fn().mockResolvedValue(true); // Always retry on error
       const mockBeforeRetry = vi.fn();
-
       const wrappedFn = wrapRetry({
         onExecute: mockOnExecute,
         onCheck: mockOnCheck,
         beforeRetry: mockBeforeRetry,
-        times: 2,
+        times: 1,
       });
       mockOnExecute.mockRejectedValue(new Error("Test Error"));
       await expect(wrappedFn()).rejects.toThrow("Test Error");
-      expect(mockOnExecute).toHaveBeenCalledTimes(3); // 初次执行 + 2 次重试
+      expect(mockOnExecute).toHaveBeenCalledTimes(2); // 初次执行 + 1 次重试
     },
   );
 });
 
-// Utility function to simulate async delay
 async function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

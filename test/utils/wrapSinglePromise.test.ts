@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import wrapSinglePromise from "../../src/utils/wrapSinglePromise";
 
-describe("without resolveId", async () => {
+describe("general usage", async () => {
   const args = ["foo", "bar"];
   const result = "foobar";
   const mockHandler = vi.fn();
@@ -15,20 +15,22 @@ describe("without resolveId", async () => {
     });
   });
 
-  it("1. should be same promise", () => {
-    expect(wrappedFn(...args)).toBe(wrappedFn(...args));
-  });
+  const promise1 = wrappedFn(...args);
+  const promise2 = wrappedFn(...args);
 
-  it("2. should receive correct args & result", async () => {
-    await sleep();
-    resolve1!(result);
-    await sleep();
+  it("should be same promise", () => expect(promise1).toBe(promise2));
+
+  await sleep();
+  resolve1!(result);
+  await promise1;
+
+  it("should receive correct args & result", () => {
     expect(mockHandler).toHaveBeenCalledWith({ args, result });
     expect(mockHandler).toHaveBeenCalledTimes(1);
   });
 });
 
-describe("specific resolveId", async () => {
+describe("arg - onResolveId as function", async () => {
   const resolveId = (a, b) => a + b;
   const wrappedFn = wrapSinglePromise(
     async (a: string, b: string) => a + b,
@@ -39,33 +41,33 @@ describe("specific resolveId", async () => {
   const promise2 = wrappedFn("foo", "bar");
   const promise3 = wrappedFn("zoo", "bar");
 
-  it("1. should be same promise if same Id", () =>
+  it("should be same promise if same Id", () =>
     expect(promise1).toBe(promise2));
-  it("2. should be diff promise if diff Id", () =>
+  it("should be diff promise if diff Id", () =>
     expect(promise1).not.toBe(promise3));
 });
 
 describe("error case", () => {
-  const errorMessage = "foobar error";
-  it("1. should reject", async () => {
+  const errorMessage = "Test Error";
+  it("should reject reason if external error", async () => {
     let reject1: (reason?: any) => void;
     const wrappedFn = wrapSinglePromise(() => {
       const { promise, reject } = Promise.withResolvers();
       reject1 = reject;
       return promise;
     });
-    expect(async () => {
+    await expect(async () => {
       const promise = wrappedFn();
       await sleep();
       reject1(errorMessage);
       await promise;
     }).rejects.toBe(errorMessage);
   });
-  it("2. should throw error", async () => {
+  it("should throw error if internal error", async () => {
     const wrappedFn = wrapSinglePromise(123 as any);
-    expect(() => {
-      return wrappedFn();
-    }).rejects.toThrow("fn.apply is not a function");
+    await expect(() => wrappedFn()).rejects.toThrow(
+      "fn.apply is not a function",
+    );
   });
 });
 
