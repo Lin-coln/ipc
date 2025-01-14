@@ -2,20 +2,17 @@ export class Queue {
   private stopFlag: boolean;
   private taskList: (() => Promise<void>)[];
   private runningPromise: Promise<void> | null;
-  private timeoutStart: NodeJS.Timeout | null;
+  private state: "idle" | "running";
   constructor() {
     this.stopFlag = false;
     this.taskList = [];
     this.runningPromise = null;
-    this.timeoutStart = null;
+    this.state = "idle";
   }
 
   push(task: () => Promise<void>) {
     this.taskList.push(task);
-    this.timeoutStart = setTimeout(() => {
-      this.timeoutStart && clearTimeout(this.timeoutStart);
-      this.start();
-    }, 10);
+    if (this.state === "running") this.start();
   }
 
   start() {
@@ -30,16 +27,16 @@ export class Queue {
       }
       this.runningPromise = null;
     });
+    this.state = "running";
   }
 
   stop() {
     this.stopFlag = true;
-    this.timeoutStart && clearTimeout(this.timeoutStart);
+    this.state = "idle";
   }
 
   clear() {
     this.taskList = this.taskList.slice(0, 0);
-    this.stop();
   }
 }
 
