@@ -1,22 +1,26 @@
 export class Queue {
   private stopFlag: boolean;
   private taskList: (() => Promise<void>)[];
-  private runningPromise: Promise<void> | null = null;
-
+  private runningPromise: Promise<void> | null;
+  private timeoutStart: NodeJS.Timeout | null;
   constructor() {
     this.stopFlag = false;
     this.taskList = [];
     this.runningPromise = null;
+    this.timeoutStart = null;
   }
 
   push(task: () => Promise<void>) {
     this.taskList.push(task);
-    this.start();
+    this.timeoutStart = setTimeout(() => {
+      this.timeoutStart && clearTimeout(this.timeoutStart);
+      this.start();
+    }, 10);
   }
 
   start() {
-    if (this.runningPromise) return;
     this.stopFlag = false;
+    if (this.runningPromise) return;
     this.runningPromise = Promise.resolve().then(async () => {
       while (true) {
         if (this.stopFlag) break;
@@ -30,6 +34,7 @@ export class Queue {
 
   stop() {
     this.stopFlag = true;
+    this.timeoutStart && clearTimeout(this.timeoutStart);
   }
 
   clear() {
@@ -100,8 +105,4 @@ export class QueueHub {
     queue.clear();
     this.queues.delete(id);
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
