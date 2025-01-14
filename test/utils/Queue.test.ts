@@ -1,8 +1,8 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 import { Queue, QueueHub } from "../../src/utils/Queue";
 
 describe("Queue basic functionality", () => {
-  it("should execute tasks in order", async () => {
+  test.concurrent("should execute tasks in order", async () => {
     const queue = new Queue();
     const taskOrder: string[] = [];
 
@@ -28,7 +28,7 @@ describe("Queue basic functionality", () => {
     expect(taskOrder).toEqual(["task1", "task2", "task3"]);
   });
 
-  it("should stop executing tasks when stopped", async () => {
+  test.concurrent("should stop executing tasks when stopped", async () => {
     const queue = new Queue();
     const taskOrder: string[] = [];
 
@@ -55,7 +55,7 @@ describe("Queue basic functionality", () => {
     expect(taskOrder).toEqual(["task1", "task2"]);
   });
 
-  it("should clear tasks when clear is called", async () => {
+  test.concurrent("should clear tasks when clear is called", async () => {
     const queue = new Queue();
     const taskOrder: string[] = [];
 
@@ -87,7 +87,7 @@ describe("Queue basic functionality", () => {
 });
 
 describe("QueueHub functionality", () => {
-  it("should queue tasks by ID", async () => {
+  test.concurrent("should queue tasks by ID", async () => {
     const hub = new QueueHub();
     const taskOrder: string[] = [];
 
@@ -117,7 +117,7 @@ describe("QueueHub functionality", () => {
     expect(taskOrder).toEqual(["task1", "queue3", "task2", "task4"]);
   });
 
-  it("should queue tasks using default resolveId", async () => {
+  test.concurrent("should queue tasks using default resolveId", async () => {
     const hub = new QueueHub();
     const taskOrder: string[] = [];
 
@@ -142,7 +142,7 @@ describe("QueueHub functionality", () => {
     expect(taskOrder).toEqual(["task1", "task2", "task3", "task4"]);
   });
 
-  it("should handle multiple queues independently", async () => {
+  test.concurrent("should handle multiple queues independently", async () => {
     const hub = new QueueHub();
     const taskOrder: string[] = [];
 
@@ -197,7 +197,7 @@ describe("QueueHub functionality", () => {
     expect(mockFn).toHaveBeenCalledTimes(6);
   });
 
-  it("should start, stop, and clear queues", async () => {
+  test.concurrent("should start, stop, and clear queues", async () => {
     const hub = new QueueHub();
     const taskOrder: string[] = [];
 
@@ -252,151 +252,163 @@ describe("QueueHub functionality", () => {
     expect(mockFn).toHaveBeenCalledTimes(7);
   });
 
-  it("should start specific queue when id is provided", async () => {
-    const hub = new QueueHub();
-    const taskOrder: string[] = [];
+  test.concurrent(
+    "should start specific queue when id is provided",
+    async () => {
+      const hub = new QueueHub();
+      const taskOrder: string[] = [];
 
-    // 模拟任务处理
-    const mockFn = vi.fn(async (taskName: string) => {
-      await sleep(100); // 模拟任务异步执行
-      taskOrder.push(taskName);
-    });
+      // 模拟任务处理
+      const mockFn = vi.fn(async (taskName: string) => {
+        await sleep(100); // 模拟任务异步执行
+        taskOrder.push(taskName);
+      });
 
-    // 自定义 resolveId，基于任务名称选择队列
-    const resolveId = (taskName: string) =>
-      taskName.startsWith("queue") ? "queue" : "task";
+      // 自定义 resolveId，基于任务名称选择队列
+      const resolveId = (taskName: string) =>
+        taskName.startsWith("queue") ? "queue" : "task";
 
-    // 使用 wrapQueue 包装 mockFn，传入 resolveId 以选择队列
-    const wrappedFn = hub.wrapQueue(mockFn, resolveId);
+      // 使用 wrapQueue 包装 mockFn，传入 resolveId 以选择队列
+      const wrappedFn = hub.wrapQueue(mockFn, resolveId);
 
-    // 向不同队列添加任务
-    wrappedFn("task1"); // 默认队列
-    hub.stop("task");
-    wrappedFn("task2"); // 默认队列
-    hub.stop("task");
-    wrappedFn("queue3"); // queue 队列
-    wrappedFn("task4"); // 默认队列
-    hub.stop("task");
-    hub.stop("queue");
-    hub.start("queue");
+      // 向不同队列添加任务
+      wrappedFn("task1"); // 默认队列
+      hub.stop("task");
+      wrappedFn("task2"); // 默认队列
+      hub.stop("task");
+      wrappedFn("queue3"); // queue 队列
+      wrappedFn("task4"); // 默认队列
+      hub.stop("task");
+      hub.stop("queue");
+      hub.start("queue");
 
-    // 等待任务执行
-    await sleep(250); // 等待一些时间，确保队列中的任务执行完
+      // 等待任务执行
+      await sleep(250); // 等待一些时间，确保队列中的任务执行完
 
-    // 验证 taskOrder 是否按顺序执行，确保只有指定队列的任务被执行
-    expect(taskOrder).toEqual(["queue3"]);
-  });
+      // 验证 taskOrder 是否按顺序执行，确保只有指定队列的任务被执行
+      expect(taskOrder).toEqual(["queue3"]);
+    },
+  );
 
-  it("should start all queues when no id is provided", async () => {
-    const hub = new QueueHub();
-    const taskOrder: string[] = [];
+  test.concurrent(
+    "should start all queues when no id is provided",
+    async () => {
+      const hub = new QueueHub();
+      const taskOrder: string[] = [];
 
-    // 模拟任务处理
-    const mockFn = vi.fn(async (taskName: string) => {
-      await sleep(100); // 模拟任务异步执行
-      taskOrder.push(taskName);
-    });
+      // 模拟任务处理
+      const mockFn = vi.fn(async (taskName: string) => {
+        await sleep(100); // 模拟任务异步执行
+        taskOrder.push(taskName);
+      });
 
-    // 自定义 resolveId，基于任务名称选择队列
-    const resolveId = (taskName: string) =>
-      taskName.startsWith("queue") ? "queue" : "task";
+      // 自定义 resolveId，基于任务名称选择队列
+      const resolveId = (taskName: string) =>
+        taskName.startsWith("queue") ? "queue" : "task";
 
-    // 使用 wrapQueue 包装 mockFn，传入 resolveId 以选择队列
-    const wrappedFn = hub.wrapQueue(mockFn, resolveId);
+      // 使用 wrapQueue 包装 mockFn，传入 resolveId 以选择队列
+      const wrappedFn = hub.wrapQueue(mockFn, resolveId);
 
-    // 向不同队列添加任务
-    wrappedFn("task1"); // 默认队列
-    hub.stop();
-    wrappedFn("task2"); // 默认队列
-    hub.stop();
-    wrappedFn("queue3"); // queue 队列
-    hub.stop();
-    wrappedFn("task4"); // 默认队列
-    hub.stop();
+      // 向不同队列添加任务
+      wrappedFn("task1"); // 默认队列
+      hub.stop();
+      wrappedFn("task2"); // 默认队列
+      hub.stop();
+      wrappedFn("queue3"); // queue 队列
+      hub.stop();
+      wrappedFn("task4"); // 默认队列
+      hub.stop();
 
-    // 启动所有队列
-    hub.start();
+      // 启动所有队列
+      hub.start();
 
-    // 等待任务执行
-    await sleep(350); // 等待一些时间，确保队列中的任务执行完
+      // 等待任务执行
+      await sleep(350); // 等待一些时间，确保队列中的任务执行完
 
-    // 验证任务顺序，确保所有队列中的任务都按顺序执行
-    expect(taskOrder).toEqual(["task1", "queue3", "task2", "task4"]);
-  });
+      // 验证任务顺序，确保所有队列中的任务都按顺序执行
+      expect(taskOrder).toEqual(["task1", "queue3", "task2", "task4"]);
+    },
+  );
 
-  it("should clear tasks in all queues when no id is provided", async () => {
-    const hub = new QueueHub();
-    const taskOrder: string[] = [];
+  test.concurrent(
+    "should clear tasks in all queues when no id is provided",
+    async () => {
+      const hub = new QueueHub();
+      const taskOrder: string[] = [];
 
-    // 模拟任务处理
-    const mockFn = vi.fn(async (taskName: string) => {
-      await sleep(100); // 模拟任务异步执行
-      taskOrder.push(taskName);
-    });
+      // 模拟任务处理
+      const mockFn = vi.fn(async (taskName: string) => {
+        await sleep(100); // 模拟任务异步执行
+        taskOrder.push(taskName);
+      });
 
-    // 自定义 resolveId，基于任务名称选择队列
-    const resolveId = (taskName: string) =>
-      taskName.startsWith("queue") ? "queue" : "task";
+      // 自定义 resolveId，基于任务名称选择队列
+      const resolveId = (taskName: string) =>
+        taskName.startsWith("queue") ? "queue" : "task";
 
-    // 使用 wrapQueue 包装 mockFn，传入 resolveId 以选择队列
-    const wrappedFn = hub.wrapQueue(mockFn, resolveId);
+      // 使用 wrapQueue 包装 mockFn，传入 resolveId 以选择队列
+      const wrappedFn = hub.wrapQueue(mockFn, resolveId);
 
-    // 向不同队列添加任务
-    wrappedFn("task1"); // 默认队列
-    wrappedFn("task2"); // 默认队列
-    wrappedFn("queue3"); // queue 队列
-    wrappedFn("task4"); // 默认队列
+      // 向不同队列添加任务
+      wrappedFn("task1"); // 默认队列
+      wrappedFn("task2"); // 默认队列
+      wrappedFn("queue3"); // queue 队列
+      wrappedFn("task4"); // 默认队列
 
-    // 清除所有队列的任务
-    hub.clear();
+      // 清除所有队列的任务
+      hub.clear();
 
-    // 向队列添加新任务
-    wrappedFn("queue5"); // 由 resolveId 分配到 queue 队列
-    wrappedFn("task6"); // 默认队列
+      // 向队列添加新任务
+      wrappedFn("queue5"); // 由 resolveId 分配到 queue 队列
+      wrappedFn("task6"); // 默认队列
 
-    // 等待任务执行
-    await sleep(250); // 等待任务完成
+      // 等待任务执行
+      await sleep(250); // 等待任务完成
 
-    // 验证所有队列的任务被清除后，只执行了新添加的任务
-    expect(taskOrder).toEqual(["queue5", "task6"]);
-  });
+      // 验证所有队列的任务被清除后，只执行了新添加的任务
+      expect(taskOrder).toEqual(["queue5", "task6"]);
+    },
+  );
 
-  it("should clear tasks in a specific queue when id is provided", async () => {
-    const hub = new QueueHub();
-    const taskOrder: string[] = [];
+  test.concurrent(
+    "should clear tasks in a specific queue when id is provided",
+    async () => {
+      const hub = new QueueHub();
+      const taskOrder: string[] = [];
 
-    // 模拟任务处理
-    const mockFn = vi.fn(async (taskName: string) => {
-      await sleep(100); // 模拟任务异步执行
-      taskOrder.push(taskName);
-    });
+      // 模拟任务处理
+      const mockFn = vi.fn(async (taskName: string) => {
+        await sleep(100); // 模拟任务异步执行
+        taskOrder.push(taskName);
+      });
 
-    // 自定义 resolveId，基于任务名称选择队列
-    const resolveId = (taskName: string) =>
-      taskName.startsWith("queue") ? "queue" : "task";
+      // 自定义 resolveId，基于任务名称选择队列
+      const resolveId = (taskName: string) =>
+        taskName.startsWith("queue") ? "queue" : "task";
 
-    // 使用 wrapQueue 包装 mockFn，传入 resolveId 以选择队列
-    const wrappedFn = hub.wrapQueue(mockFn, resolveId);
+      // 使用 wrapQueue 包装 mockFn，传入 resolveId 以选择队列
+      const wrappedFn = hub.wrapQueue(mockFn, resolveId);
 
-    // 向不同队列添加任务
-    wrappedFn("task1"); // 默认队列
-    wrappedFn("task2"); // 默认队列
-    wrappedFn("queue3"); // queue 队列
-    wrappedFn("task4"); // 默认队列
+      // 向不同队列添加任务
+      wrappedFn("task1"); // 默认队列
+      wrappedFn("task2"); // 默认队列
+      wrappedFn("queue3"); // queue 队列
+      wrappedFn("task4"); // 默认队列
 
-    // 清除 queue 队列
-    hub.clear("queue");
+      // 清除 queue 队列
+      hub.clear("queue");
 
-    // 向队列添加新任务
-    wrappedFn("queue5"); // 由 resolveId 分配到 queue 队列
-    wrappedFn("task6"); // 默认队列
+      // 向队列添加新任务
+      wrappedFn("queue5"); // 由 resolveId 分配到 queue 队列
+      wrappedFn("task6"); // 默认队列
 
-    // 等待任务执行
-    await sleep(450); // 等待任务完成
+      // 等待任务执行
+      await sleep(450); // 等待任务完成
 
-    // 验证清除后的任务顺序，确保 queue 队列的任务没有被执行
-    expect(taskOrder).toEqual(["task1", "queue5", "task2", "task4", "task6"]);
-  });
+      // 验证清除后的任务顺序，确保 queue 队列的任务没有被执行
+      expect(taskOrder).toEqual(["task1", "queue5", "task2", "task4", "task6"]);
+    },
+  );
 });
 
 async function sleep(ms: number): Promise<void> {
