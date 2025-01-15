@@ -17,6 +17,7 @@ export class Queue {
 
   start() {
     this.stopFlag = false;
+    this.state = "running";
     if (this.runningPromise) return;
     this.runningPromise = Promise.resolve().then(async () => {
       while (true) {
@@ -27,7 +28,6 @@ export class Queue {
       }
       this.runningPromise = null;
     });
-    this.state = "running";
   }
 
   stop() {
@@ -49,7 +49,9 @@ export class QueueHub {
   wrapQueue<This, Args extends any[], R extends any>(
     fn: (this: This, ...args: Args) => Promise<R>,
     resolveId?: (this: This, ...args: Args) => string,
+    opts: { start?: boolean } = {},
   ): (this: This, ...args: Args) => Promise<R> {
+    opts.start ??= true;
     const hub = this;
 
     return function (this: This, ...args: Args): Promise<R> {
@@ -65,6 +67,7 @@ export class QueueHub {
         reject1 = reject;
       });
       queue.push(() => fn.apply(this, args).then(resolve1, reject1));
+      opts.start && queue.start();
       return promise;
     };
   }

@@ -25,7 +25,6 @@ describe("QueueHub functionality", () => {
     wrappedFn("task2");
     wrappedFn("queue3");
     wrappedFn("task4");
-    hub.start();
 
     // 等待所有任务完成
     await sleep(50 * 4 + 50);
@@ -50,7 +49,6 @@ describe("QueueHub functionality", () => {
     wrappedFn("task2");
     wrappedFn("task3");
     wrappedFn("task4");
-    hub.start();
 
     // 等待任务完成
     await sleep(50 * 4 + 50);
@@ -79,7 +77,6 @@ describe("QueueHub functionality", () => {
     wrappedFn("task2");
     wrappedFn("queue3");
     wrappedFn("task4");
-    hub.start();
 
     // 等待一些时间确保 queue1 和 queue2 中的任务已完成
     await sleep(50 * 2 + 50);
@@ -91,7 +88,6 @@ describe("QueueHub functionality", () => {
     hub.stop("queue");
     wrappedFn("queue5"); // 尝试给已停止的队列添加任务
     wrappedFn("queue6");
-    hub.start("queue");
     await sleep(50);
     hub.stop("queue"); // 尝试停止的队列添加任务
 
@@ -134,7 +130,6 @@ describe("QueueHub functionality", () => {
     wrappedFn("task2");
     wrappedFn("queue3");
     wrappedFn("task4");
-    hub.start();
 
     // 等待任务执行
     await sleep(50 * 2 + 10); // 等待一些时间，确保队列中的任务执行完
@@ -146,7 +141,7 @@ describe("QueueHub functionality", () => {
     hub.stop("queue");
     wrappedFn("queue5"); // 添加新任务到已经停止的队列
     expect(mockFn).toHaveBeenCalledTimes(4);
-    hub.start("queue");
+
     wrappedFn("task6");
     await sleep(50 * 2 + 10); // 4, 6
 
@@ -172,7 +167,7 @@ describe("QueueHub functionality", () => {
       });
       const resolveId = (field: string) =>
         field.startsWith("queue") ? "queue" : "task";
-      const wrappedFn = hub.wrapQueue(mockFn, resolveId);
+      const wrappedFn = hub.wrapQueue(mockFn, resolveId, { start: false });
 
       // 向不同队列添加任务
       wrappedFn("task1");
@@ -207,9 +202,6 @@ describe("QueueHub functionality", () => {
       wrappedFn("queue3");
       wrappedFn("task4");
 
-      // 启动所有队列
-      hub.start();
-
       // 等待任务执行
       await sleep(50 * 3 + 10); // 等待一些时间，确保队列中的任务执行完
 
@@ -238,7 +230,6 @@ describe("QueueHub functionality", () => {
 
       wrappedFn("queue5");
       wrappedFn("task6");
-      hub.start();
 
       // 等待任务执行
       await sleep(50 * 2 + 10); // 等待任务完成
@@ -268,7 +259,6 @@ describe("QueueHub functionality", () => {
 
       wrappedFn("queue5");
       wrappedFn("task6");
-      hub.start();
 
       // 等待任务执行
       await sleep(50 * 4 + 10); // 等待任务完成
