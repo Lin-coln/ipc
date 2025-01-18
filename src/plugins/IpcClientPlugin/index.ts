@@ -32,7 +32,7 @@ export class IpcClientPlugin
     return `pipe://${this.connOpts.path}`;
   }
 
-  async connect(opts: net.IpcSocketConnectOpts): Promise<this> {
+  async connect(connOpts: net.IpcSocketConnectOpts): Promise<this> {
     if (!this.socket.connecting && !this.socket.pending) {
       // connected
       return this;
@@ -44,7 +44,10 @@ export class IpcClientPlugin
         if (!this.socket.pending)
           throw new Error(`failed to connect - not pending`);
         logger.log(`[client.socket] connect...`);
-        this.socket.on("error", reject).on("connect", resolve).connect(opts);
+        this.socket
+          .on("error", reject)
+          .on("connect", resolve)
+          .connect(connOpts);
       } catch (e) {
         reject(e);
       }
@@ -83,7 +86,7 @@ export class IpcClientPlugin
       })
       // todo: connect-data issue
       .on("data", handleData);
-    handleClientConnected.call(this, opts);
+    handleClientConnected.call(this, connOpts);
     logger.log(`[client] emit connect`, this.remoteIdentifier);
     this.emit("connect");
 
@@ -124,41 +127,44 @@ export class IpcClientPlugin
 
     logger.log(`[client.socket] write`, data.toString("utf8"));
 
+    const write = async (data: Buffer) => {
+      const done = socket.write(data);
+      if (done) return;
+      await new Promise<void>((resolve, reject) => {
+        const handler: ClientEvents["disconnect"] = (ctx) => {
+          this.off("disconnect", handler);
+          reject(new Error(`[client] failed to write - disconnect`));
+        };
+        this.on("disconnect", handler);
+        socket.once("drain", () => resolve());
+      });
+    };
+
     const remain = socket.writableHighWaterMark - socket.writableLength;
+
     // write directly
     if (remain >= data.length) {
-      const done = socket.write(data);
-      if (done) {
-        return this;
-      }
+      await write(data);
+      return this;
     }
 
     // write by chunk
-    if (data.length >= socket.writableHighWaterMark || data.length > remain) {
+    else {
       const chunkSize = 1024;
       let index = 0;
       let chunk: Buffer;
       while (true) {
         if (index >= data.length) break;
 
-        chunk = data.subarray(index, index + chunkSize);
-        await this.write(chunk);
-        index += chunkSize;
+        const from = index;
+        const len = Math.min(index + chunkSize, data.length);
+        const to = from + len;
+        chunk = data.subarray(from, to);
+        await write(chunk);
+        index += len;
       }
       return this;
     }
-
-    // wait drain
-    return new Promise((resolve, reject) => {
-      const handler: ClientEvents["disconnect"] = (ctx) => {
-        this.off("disconnect", handler);
-        reject(new Error(`[client] failed to write - disconnect`));
-      };
-      this.on("disconnect", handler);
-      socket.once("drain", () => {
-        this.write(data).then(resolve, reject);
-      });
-    });
   }
 }
 

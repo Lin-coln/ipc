@@ -91,11 +91,11 @@ export class Client<
    * - receiveMessage(msg:ReceivedMsg);
    */
 
-  // async write(data: Buffer) {
-  //   const plugin = this.#plugin!;
-  //   await plugin.write(data);
-  //   return this;
-  // }
+  async write(data: Buffer) {
+    const plugin = this.#plugin!;
+    await plugin.write(data);
+    return this;
+  }
 
   // async postMessage(data: PostMsg) {
   //   await this.write(this.onWriteData(this.onSerialize(data)));

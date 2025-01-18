@@ -47,7 +47,7 @@ export interface IClient<
   readonly remoteIdentifier: string | null;
   connect(opts: IClientConnOpts): Promise<this>;
   disconnect(): Promise<this>;
-  // write(data: Buffer): Promise<this>;
+  write(data: Buffer): Promise<this>;
   // postMessage(data: PostMsg): Promise<this>;
   // onDeserialize(data: Buffer): IClientMessage;
   // onSerialize(data: IClientMessage): Buffer;

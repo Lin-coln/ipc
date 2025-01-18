@@ -17,7 +17,7 @@ async function main() {
   if (port === 5001) {
     await executeServer();
   } else if (port === 5002) {
-    await executeClient();
+    await executeClientPlugin();
   }
 }
 
@@ -66,44 +66,6 @@ async function executeServer() {
         socketId,
         Buffer.from(`${new Date().toISOString()} - hello\f`, "utf8"),
       );
-    }
-  });
-}
-
-async function executeClient() {
-  const connOpts = { path: pipeFilename };
-  const client = await new ipc.Client()
-    .on("error", (err) => {
-      console.log(`[ipc] error`, "code" in err ? err.code : err.message);
-    })
-    .on("connect", async () => {
-      await new Promise((resolve) => setTimeout(resolve));
-      console.log(`[ipc] connect`, client.remoteIdentifier);
-    })
-    .on("disconnect", () => {
-      console.log(`[ipc] disconnect`);
-    })
-    .on("data", (data) => {
-      const raw = data.toString("utf8");
-      console.log(`[ipc] data`, raw);
-    })
-    .on("message", (msg) => {
-      console.log(`[ipc] message`, msg);
-    })
-    .connect(connOpts);
-
-  useKeyboard((key) => {
-    if (key.ctrl) return;
-    if (key.name === "d") {
-      console.log(`[press] disconnect`);
-      client.disconnect();
-    } else if (key.name === "c") {
-      console.log(`[press] connect`);
-      client.connect(connOpts);
-    } else if (key.name === "m") {
-      console.log(`[press] message`);
-      const message = `${new Date().toISOString()} - hello`;
-      client.write(Buffer.from(message, "utf8"));
     }
   });
 }

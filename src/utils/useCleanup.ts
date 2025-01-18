@@ -43,5 +43,6 @@ export default function useCleanup(callback: () => void): void {
   process.on("exit", () => {
     console.log(`exit`);
     cleanup();
+    process.exit(0);
   });
 }
