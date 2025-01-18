@@ -10,26 +10,10 @@ const projectDirname = path.resolve(__dirname, "../..");
 const pipeFilename = path.join(projectDirname, "./scripts/pipe.sock");
 
 const connectOpts = { path: pipeFilename };
-let socket: net.Socket;
-const server = net.createServer((client) => {
-  socket = client;
-  client.on("data", (data: Buffer) => {
-    client.write(data);
-  });
-});
-const openServer = async () => {
-  if (fs.existsSync(pipeFilename)) fs.unlinkSync(pipeFilename);
-  await new Promise<void>((resolve) => {
-    server.listen(connectOpts, () => resolve());
-  });
-};
-const closeServer = async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
-  if (fs.existsSync(pipeFilename)) fs.unlinkSync(pipeFilename);
-};
+const server = getSocketServer();
 
 describe("IpcClientPlugin basic functionality", async () => {
-  await openServer();
+  await server.open(connectOpts);
   const ipcClient = new IpcClientPlugin({});
 
   const mockOnConnect1 = vi.fn();
@@ -69,10 +53,10 @@ describe("IpcClientPlugin basic functionality", async () => {
   });
 
   const mockOnConnect2 = vi.fn();
-  await closeServer();
+  await server.close();
   await Promise.allSettled([
     ipcClient.on("connect", mockOnConnect2).connect(connectOpts),
-    openServer(),
+    server.open(connectOpts),
   ]);
   ipcClient.off("connect", mockOnConnect2);
   it("should reconnect successfully", () => {
@@ -82,7 +66,7 @@ describe("IpcClientPlugin basic functionality", async () => {
 
   const mockOnDisconnect2 = vi.fn();
   ipcClient.on("disconnect", mockOnDisconnect2);
-  socket!.destroy();
+  server.disconnect();
   await sleep(10);
   ipcClient.off("disconnect", mockOnDisconnect2);
   it("should disconnect event when server close socket", () => {
@@ -94,11 +78,11 @@ describe("IpcClientPlugin basic functionality", async () => {
   });
 
   await ipcClient.disconnect();
-  await closeServer();
+  await server.close();
 });
 
 describe("IpcClientPlugin repeat actions", async () => {
-  await openServer();
+  await server.open(connectOpts);
   const ipcClient = new IpcClientPlugin({});
 
   const mockOnConnect1 = vi.fn();
@@ -122,11 +106,11 @@ describe("IpcClientPlugin repeat actions", async () => {
   });
 
   await ipcClient.disconnect();
-  await closeServer();
+  await server.close();
 });
 
 describe("IpcClientPlugin write large data", async () => {
-  await openServer();
+  await server.open(connectOpts);
   const ipcClient = new IpcClientPlugin({});
 
   let received = Buffer.alloc(0);
@@ -136,7 +120,7 @@ describe("IpcClientPlugin write large data", async () => {
     })
     .connect(connectOpts);
 
-  const writableHighWaterMark = socket.writableHighWaterMark;
+  const writableHighWaterMark = ipcClient.socket.writableHighWaterMark;
   const origin = Buffer.from(
     Array.from({ length: writableHighWaterMark / 2 }, (_, i) => i + 1).join(
       ",",
@@ -152,9 +136,43 @@ describe("IpcClientPlugin write large data", async () => {
   });
 
   await ipcClient.disconnect();
-  await closeServer();
+  await server.close();
 });
 
 function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+function getSocketServer() {
+  let pipeFilename: string | undefined;
+  let socket: net.Socket;
+  const server = net.createServer((client) => {
+    socket = client;
+    client.on("data", (data: Buffer) => {
+      client.write(data);
+    });
+  });
+  return {
+    open,
+    close,
+    disconnect() {
+      socket.destroy();
+    },
+    get socket() {
+      return socket;
+    },
+  };
+  async function open(listenOpts: net.ListenOptions) {
+    pipeFilename = listenOpts.path;
+    if (pipeFilename && fs.existsSync(pipeFilename))
+      fs.unlinkSync(pipeFilename);
+    await new Promise<void>((resolve) => {
+      server.listen(listenOpts, () => resolve());
+    });
+  }
+  async function close() {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (pipeFilename && fs.existsSync(pipeFilename))
+      fs.unlinkSync(pipeFilename);
+  }
 }
