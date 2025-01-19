@@ -1,12 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
-import wrapSinglePromise from "../../src/utils/wrapSinglePromise";
+import { PromiseHub } from "../../src/utils/wrapSinglePromise";
 
 describe("general usage", async () => {
+  const hub = new PromiseHub();
   const args = ["foo", "bar"];
   const result = "foobar";
   const mockHandler = vi.fn();
   let resolve1: (value: string) => void;
-  const wrappedFn = wrapSinglePromise((...args) => {
+  const wrappedFn = hub.wrapSinglePromise((...args) => {
     const { promise, resolve } = Promise.withResolvers();
     resolve1 = resolve;
     return promise.then((result) => {
@@ -31,8 +32,10 @@ describe("general usage", async () => {
 });
 
 describe("arg - onResolveId as function", async () => {
+  const hub = new PromiseHub();
+
   const resolveId = (a, b) => a + b;
-  const wrappedFn = wrapSinglePromise(
+  const wrappedFn = hub.wrapSinglePromise(
     async (a: string, b: string) => a + b,
     resolveId,
   );
@@ -48,10 +51,12 @@ describe("arg - onResolveId as function", async () => {
 });
 
 describe("error case", () => {
+  const hub = new PromiseHub();
+
   const errorMessage = "Test Error";
   it("should reject reason if external error", async () => {
     let reject1: (reason?: any) => void;
-    const wrappedFn = wrapSinglePromise(() => {
+    const wrappedFn = hub.wrapSinglePromise(() => {
       const { promise, reject } = Promise.withResolvers();
       reject1 = reject;
       return promise;
@@ -64,7 +69,7 @@ describe("error case", () => {
     }).rejects.toBe(errorMessage);
   });
   it("should throw error if internal error", async () => {
-    const wrappedFn = wrapSinglePromise(123 as any);
+    const wrappedFn = hub.wrapSinglePromise(123 as any);
     await expect(() => wrappedFn()).rejects.toThrow(
       "fn.apply is not a function",
     );

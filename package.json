@@ -8,8 +8,6 @@
   },
   "scripts": {
     "build": "tsup",
-    "test:peer1": "cross-env PORT=5001 tsx --tsconfig ./tsconfig.json ./scripts/test.ts",
-    "test:peer2": "cross-env PORT=5002 tsx --tsconfig ./tsconfig.json ./scripts/test.ts",
     "coverage": "vitest run --coverage",
     "test:ui": "vitest --coverage --ui"
   },

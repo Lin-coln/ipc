@@ -7,7 +7,7 @@ import {
   IClientEvents,
   IClientMessage,
 } from "@interfaces/index";
-import wrapSinglePromise from "@utils/wrapSinglePromise";
+import { PromiseHub } from "@utils/wrapSinglePromise";
 
 type PresetClientPlugin = IpcClientPlugin;
 type PresetClientParams = {
@@ -29,15 +29,21 @@ export class Client<
   implements IClient<PostMsg, ReceivedMsg>
 {
   #plugin: PresetClientPlugin | null;
-
+  #promiseHub: PromiseHub;
   interceptors: DataInterceptor[];
 
   constructor() {
     super();
     this.#plugin = null;
+    this.#promiseHub = new PromiseHub();
     this.interceptors = [];
-    this.connect = wrapSinglePromise(this.connect);
-    this.disconnect = wrapSinglePromise(this.disconnect);
+
+    const promiseHub = this.#promiseHub;
+    this.connect = promiseHub.wrapSinglePromise(this.connect, "connect");
+    this.disconnect = promiseHub.wrapSinglePromise(
+      this.disconnect,
+      "disconnect",
+    );
   }
 
   get remoteIdentifier(): string | null {

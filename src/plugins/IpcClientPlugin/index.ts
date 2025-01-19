@@ -2,9 +2,11 @@ import net from "node:net";
 import { ClientEvents, ClientPlugin, Logger } from "@interfaces/index";
 import EventBus from "@utils/EventBus";
 import wrapRetry from "@utils/wrapRetry";
-import fixPipeName from "@utils/fixPipeName";
-import wrapSinglePromise from "@utils/wrapSinglePromise";
+import { PromiseHub } from "@utils/wrapSinglePromise";
 import { QueueHub } from "@utils/Queue";
+import { bindSocketLog, connect } from "./connect";
+import { useBeforeMiddleware, withMiddleware } from "@utils/middleware";
+import { write } from "./write";
 
 // const logger: Logger = console;
 const logger: Logger = { log() {} };
@@ -14,17 +16,25 @@ export class IpcClientPlugin
   implements ClientPlugin<net.IpcSocketConnectOpts>
 {
   queueHub: QueueHub;
+  promiseHub: PromiseHub;
   socket: net.Socket;
   connOpts: net.IpcSocketConnectOpts | null;
   constructor(opts: net.SocketConstructorOpts) {
     super();
     this.queueHub = new QueueHub();
+    this.promiseHub = new PromiseHub();
     this.socket = new net.Socket(opts);
     this.connOpts = null;
     enhanceClient.call(this);
-    this.connect = wrapSinglePromise(this.connect);
-    this.disconnect = wrapSinglePromise(this.disconnect);
-    this.write = this.queueHub.wrapQueue(this.write, () => "write");
+
+    const queueHub = this.queueHub;
+    const promiseHub = this.promiseHub;
+    this.connect = promiseHub.wrapSinglePromise(this.connect, "connect");
+    this.disconnect = promiseHub.wrapSinglePromise(
+      this.disconnect,
+      "disconnect",
+    );
+    this.write = queueHub.wrapQueue(this.write, () => "write");
   }
 
   get remoteIdentifier(): string | null {
@@ -33,63 +43,35 @@ export class IpcClientPlugin
   }
 
   async connect(connOpts: net.IpcSocketConnectOpts): Promise<this> {
-    if (!this.socket.connecting && !this.socket.pending) {
-      // connected
-      return this;
-    }
-    await new Promise<void>((resolve, reject) => {
-      try {
-        if (this.socket.connecting)
-          throw new Error(`failed to connect - connecting`);
-        if (!this.socket.pending)
-          throw new Error(`failed to connect - not pending`);
-        logger.log(`[client.socket] connect...`);
-        this.socket
-          .on("error", reject)
-          .on("connect", resolve)
-          .connect(connOpts);
-      } catch (e) {
-        reject(e);
-      }
-    }).finally(() => {
-      this.socket.removeAllListeners();
-    });
+    // connected
+    if (!this.socket.connecting && !this.socket.pending) return this;
 
-    const handleData = this.queueHub.wrapQueue(
-      async (data: Buffer) => {
-        logger.log(`[client.socket] data`, data.toString("utf8"));
-        logger.log(`[client] emit data`);
-        this.emit("data", data);
-      },
-      () => "read",
-    );
+    logger.log(`[client.socket] connect...`);
+    await connect(this.socket, connOpts);
+    bindSocketLog(this.socket, logger);
+
+    const handleClose = () => {
+      const identifier = this.remoteIdentifier!;
+      this.queueHub.clear("write");
+      handleClientDisconnected.call(this);
+      this.emit("disconnect", { identifier, passive: true });
+    };
 
     this.socket
-      .on("error", (err) => {
-        logger.log(
-          `[client.socket] error`,
-          "code" in err ? err.code : err.message,
-        );
-        // todo: handle error
-        logger.log(`[client] emit error`);
+      .on("error", (err: Error) => {
         this.emit("error", err);
+        if (this.socket.closed) handleClose();
       })
       .on("close", (hadError: boolean) => {
-        logger.log(`[client.socket] close`, { hadError });
         if (hadError) return;
-        const identifier = this.remoteIdentifier!;
-        this.queueHub.clear("write");
-        this.queueHub.clear("read");
-        handleClientDisconnected.call(this);
-        logger.log(`[client] emit disconnect`);
-        this.emit("disconnect", { identifier, passive: true });
+        handleClose();
       })
-      // todo: connect-data issue
-      .on("data", handleData);
-    handleClientConnected.call(this, connOpts);
-    logger.log(`[client] emit connect`, this.remoteIdentifier);
-    this.emit("connect");
+      .on("data", (data: Buffer) => {
+        this.emit("data", data);
+      });
 
+    this.connOpts = connOpts;
+    this.emit("connect");
     return this;
   }
 
@@ -103,7 +85,6 @@ export class IpcClientPlugin
     if (this.socket.closed) return this;
     this.socket.removeAllListeners();
     this.queueHub.clear("write");
-    this.queueHub.clear("read");
     await new Promise<void>((resolve, reject) => {
       try {
         logger.log(`[client.socket] ending`);
@@ -114,7 +95,6 @@ export class IpcClientPlugin
     });
     const identifier = this.remoteIdentifier!;
     handleClientDisconnected.call(this);
-    logger.log(`[client] emit disconnect`);
     this.emit("disconnect", { identifier, passive: false });
     return this;
   }
@@ -124,64 +104,18 @@ export class IpcClientPlugin
     if (socket.pending)
       // not connected
       throw new Error(`[client] failed to write - not connected`);
-
     logger.log(`[client.socket] write`, data.toString("utf8"));
-
-    const write = async (data: Buffer) => {
-      const done = socket.write(data);
-      if (done) return;
-
-      let handler: ClientEvents["disconnect"];
-      await new Promise<void>((resolve, reject) => {
-        handler = (ctx) => {
-          this.off("disconnect", handler);
-          reject(new Error(`[client] failed to write - disconnect`));
-        };
-        this.on("disconnect", handler);
-        socket.once("drain", () => resolve());
-      }).finally(() => {
-        handler && this.off("disconnect", handler);
-      });
-    };
-
-    const remain = socket.writableHighWaterMark - socket.writableLength;
-
-    // write directly
-    if (remain >= data.length) {
-      await write(data);
-      return this;
-    }
-
-    // write by chunk
-    else {
-      const chunkSize = 1024;
-      let index = 0;
-      let chunk: Buffer;
-      while (true) {
-        if (index >= data.length) break;
-
-        const from = index;
-        const len = Math.min(index + chunkSize, data.length);
-        const to = from + len;
-        chunk = data.subarray(from, to);
-        await write(chunk);
-        index += len;
-      }
-      return this;
-    }
+    await write(socket, data);
+    return this;
   }
 }
 
 function enhanceClient(this: IpcClientPlugin) {
-  // 1. connect
-  // fix pipe name on win32 platform
-  const connect = this.connect;
-  this.connect = function (
-    this: IpcClientPlugin,
-    opts: net.IpcSocketConnectOpts,
-  ) {
-    return connect.call(this, { ...opts, path: fixPipeName(opts.path) });
-  };
+  // add logger to emit
+  this.emit = withMiddleware(
+    this.emit.bind(this),
+    useBeforeMiddleware(([event]) => logger.log(`[client] emit`, event)),
+  );
 
   // retry feature
   this.connect = wrapRetry({
@@ -196,13 +130,6 @@ function enhanceClient(this: IpcClientPlugin) {
         "code" in error ? error.code : error.message,
       ),
   });
-}
-
-function handleClientConnected(
-  this: IpcClientPlugin,
-  opts: net.IpcSocketConnectOpts,
-) {
-  this.connOpts = opts;
 }
 
 function handleClientDisconnected(this: IpcClientPlugin) {

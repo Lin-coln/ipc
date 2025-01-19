@@ -1,17 +1,12 @@
 import net from "node:net";
 import fs from "node:fs";
 import process from "node:process";
-import {
-  ClientEvents,
-  Logger,
-  ServerEvents,
-  ServerPlugin,
-} from "@interfaces/index";
+import { Logger, ServerEvents, ServerPlugin } from "@interfaces/index";
 import EventBus from "@utils/EventBus";
 import useCleanup from "@utils/useCleanup";
 import { uuid } from "@utils/uuid";
 import fixPipeName from "@utils/fixPipeName";
-import wrapSinglePromise from "@utils/wrapSinglePromise";
+import { PromiseHub } from "@utils/wrapSinglePromise";
 import { QueueHub } from "@utils/Queue";
 
 // const logger: Logger = console;
@@ -22,18 +17,26 @@ export class IpcServerPlugin
   implements ServerPlugin<net.ListenOptions>
 {
   queueHub: QueueHub;
+  promiseHub: PromiseHub;
   server: net.Server;
   sockets: Map<string, net.Socket>;
   constructor(opts: net.ServerOpts) {
     super();
     this.queueHub = new QueueHub();
+    this.promiseHub = new PromiseHub();
     this.server = new net.Server(opts);
     this.sockets = new Map();
     enhanceServer.call(this);
-    this.listen = wrapSinglePromise(this.listen);
-    this.disconnect = wrapSinglePromise(this.disconnect, (id) => id);
-    this.close = wrapSinglePromise(this.close);
-    this.write = this.queueHub.wrapQueue(this.write, (id) => `write_${id}`);
+
+    const queueHub = this.queueHub;
+    const promiseHub = this.promiseHub;
+    this.listen = promiseHub.wrapSinglePromise(this.listen, "listen");
+    this.close = promiseHub.wrapSinglePromise(this.close, "close");
+    this.write = queueHub.wrapQueue(this.write, (id) => `write_${id}`);
+    this.disconnect = promiseHub.wrapSinglePromise(
+      this.disconnect,
+      (id) => `disconnect_${id}`,
+    );
   }
 
   async listen(opts: net.ListenOptions): Promise<this> {
@@ -200,15 +203,11 @@ function handleSocketConnection(this: IpcServerPlugin, socket: net.Socket) {
       );
       logger.log(`[server] emit error`);
       this.emit("error", err);
-
-      if (socket.closed) {
-        handleClose();
-      }
+      if (socket.closed) handleClose();
     })
     .on("close", (hadError: boolean) => {
       logger.log(`[server.socket] close`);
       if (hadError) return;
-
       handleClose();
     })
     .on("data", handleData);

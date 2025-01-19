@@ -1,22 +1,22 @@
 export type Middleware<Args extends any[], R extends any, This = unknown> = (
   this: This,
   args: Args,
-  next: () => Promise<R>,
-) => Promise<R>;
+  next: () => R,
+) => R;
 
 export function withMiddleware<
   Args extends any[],
   R extends any,
   This = unknown,
 >(
-  fn: (this: This, ...args: Args) => Promise<R>,
+  fn: (this: This, ...args: Args) => R,
   ...middlewares: Middleware<Args, R, This>[]
-): (this: This, ...args: Args) => Promise<R> {
+): (this: This, ...args: Args) => R {
   if (!middlewares.length) return fn;
 
   if (middlewares.length === 1) {
     const mw = middlewares[0];
-    return function (this: This, ...args: Args): Promise<R> {
+    return function (this: This, ...args: Args): R {
       const next = () => fn.apply(this, args);
       return mw.call(this, args, next);
     };
@@ -35,6 +35,17 @@ export function useArgsMiddleware<
     if (newArgs && args !== newArgs) {
       args.splice(0, args.length).push(...newArgs);
     }
+    return next();
+  };
+}
+
+export function useBeforeMiddleware<
+  Args extends any[],
+  R extends any,
+  This = unknown,
+>(onBefore: (args: Args) => unknown): Middleware<Args, R, This> {
+  return (args, next) => {
+    onBefore(args);
     return next();
   };
 }
