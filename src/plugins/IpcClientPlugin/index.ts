@@ -40,8 +40,8 @@ export class IpcClientPlugin
     enhanceDisconnect.call(this, logger);
 
     this.connect = this.promiseHub.wrapLock(this.connect, "connect");
-    this.disconnect = this.promiseHub.wrapLock(this.disconnect, "disconnect");
     this.write = this.queueHub.wrapQueue(this.write, () => "write");
+    this.disconnect = this.promiseHub.wrapLock(this.disconnect, "disconnect");
   }
 
   get remoteIdentifier(): string | null {

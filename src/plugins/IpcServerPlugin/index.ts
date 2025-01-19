@@ -10,6 +10,12 @@ import { PromiseHub } from "@utils/wrapSinglePromise";
 import { QueueHub } from "@utils/Queue";
 import { useBeforeMiddleware, withMiddleware } from "@utils/middleware";
 import { listen } from "./listen";
+import {
+  disconnect,
+  enhanceDisconnect,
+  wrapDisconnectEffect,
+} from "./disconnect";
+import { write } from "./write";
 
 // const logger: Logger = console;
 const logger: Logger = { log() {} };
@@ -42,15 +48,14 @@ export class IpcServerPlugin
     );
 
     enhanceServer.call(this);
+    enhanceDisconnect.call(this);
 
-    const queueHub = this.queueHub;
-    const promiseHub = this.promiseHub;
-    this.listen = promiseHub.wrapLock(this.listen, "listen");
-    this.close = promiseHub.wrapLock(this.close, "close");
-    this.write = queueHub.wrapQueue(this.write, (id) => `write_${id}`);
-    this.disconnect = promiseHub.wrapLock(
+    this.listen = this.promiseHub.wrapLock(this.listen, "listen");
+    this.close = this.promiseHub.wrapLock(this.close, "close");
+    this.write = this.queueHub.wrapQueue(this.write, (id) => `write:${id}`);
+    this.disconnect = this.promiseHub.wrapLock(
       this.disconnect,
-      (id) => `disconnect_${id}`,
+      (id) => `disconnect:${id}`,
     );
   }
 
@@ -76,28 +81,10 @@ export class IpcServerPlugin
 
   async disconnect(id: string): Promise<this> {
     const socket = this.sockets.get(id);
-    if (!socket) {
-      // throw new Error(`failed to disconnect - socket not found: ${id}`);
-      return this;
-    }
+    if (!socket)
+      throw new Error(`failed to disconnect - socket not found: ${id}`);
     this.sockets.delete(id);
-
-    this.queueHub.clear(`write_${id}`);
-    this.queueHub.clear(`read_${id}`);
-
-    if (socket.closed) return this;
-    socket.removeAllListeners();
-    await new Promise<void>((resolve, reject) => {
-      try {
-        logger.log(`[server.socket] ending`);
-        socket.end(resolve);
-      } catch (e) {
-        reject(e);
-      }
-    });
-    logger.log(`[server.socket] destroying`);
-    socket.destroy();
-    this.emit("disconnect", { id, passive: false });
+    await disconnect(socket);
     return this;
   }
 
@@ -121,22 +108,8 @@ export class IpcServerPlugin
     if (!socket) {
       throw new Error(`[server] failed to write - socket not found: ${id}`);
     }
-    const done = socket.write(data);
-    if (done) return this;
-
-    let handler: ServerEvents["disconnect"];
-    await new Promise<void>((resolve, reject) => {
-      handler = (ctx) => {
-        if (ctx.id !== id) return;
-        this.off("disconnect", handler);
-        reject(new Error(`[client] failed to write - disconnect`));
-      };
-      this.on("disconnect", handler);
-      socket.once("drain", () => resolve());
-    }).finally(() => {
-      handler && this.off("disconnect", handler);
-    });
-
+    logger.log(`[server.socket] write`, data.toString("utf8"));
+    await write(socket, data);
     return this;
   }
 }
@@ -170,34 +143,25 @@ function enhanceServer(this: IpcServerPlugin) {
 function handleSocketConnection(this: IpcServerPlugin, socket: net.Socket) {
   const id = uuid();
   logger.log(`[server.socket] connection`, id);
-
   bindSocketLog(socket);
-  const handleClose = () => {
+  const handleClose = wrapDisconnectEffect.call(this, (id: string) => {
     this.sockets.delete(id);
-    this.queueHub.clear(`write_${id}`);
-    this.queueHub.clear(`read_${id}`);
     socket.removeAllListeners();
-    logger.log(`[server.socket] destroying`);
     socket.destroy();
-    this.emit("disconnect", { id, passive: true });
-  };
-  const handleData = async (data: Buffer) => {
-    logger.log(`[server.socket] data`, data.toString("utf8"));
-    this.emit("data", id, data);
-  };
+    return false;
+  });
   socket
     .on("error", (err) => {
       this.emit("error", err);
-      if (socket.closed) handleClose();
+      if (socket.closed) handleClose(id);
     })
     .on("close", (hadError: boolean) => {
       if (hadError) return;
-      handleClose();
+      handleClose(id);
     })
-    .on(
-      "data",
-      this.queueHub.wrapQueue(handleData, () => `read_${id}`),
-    );
+    .on("data", (data: Buffer) => {
+      this.emit("data", id, data);
+    });
   this.sockets.set(id, socket);
   this.emit("connect", id);
 }
