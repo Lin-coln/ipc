@@ -57,7 +57,7 @@ describe("IpcClientPlugin basic functionality", async () => {
   await server.close();
   await Promise.all([
     ipcClient.on("connect", mockOnConnect2).connect(connectOpts),
-    server.open(connectOpts),
+    sleep(100).then(() => server.open(connectOpts)),
   ]);
   ipcClient.off("connect", mockOnConnect2);
   it("should reconnect successfully", () => {

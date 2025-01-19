@@ -112,7 +112,7 @@ describe("IpcServerPlugin", async () => {
     await serverInstance1.write(clientId1, largeData);
     await new Promise((resolve) => clientSocket1.write(largeData, resolve));
     await sleep(10);
-    it("should handle large data writes", async () => {
+    it("should handle large data writes", () => {
       expect(clientReceived.length).toBe(largeData.length);
       expect(clientReceived.toString()).toBe(largeData.toString());
       expect(serverReceived.length).toBe(largeData.length);

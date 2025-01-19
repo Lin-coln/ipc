@@ -1,12 +1,12 @@
 import net from "node:net";
 import { ClientEvents, ClientPlugin, Logger } from "@interfaces/index";
 import EventBus from "@utils/EventBus";
-import wrapRetry from "@utils/wrapRetry";
 import { PromiseHub } from "@utils/wrapSinglePromise";
 import { QueueHub } from "@utils/Queue";
-import { bindSocketLog, connect } from "./connect";
+import { bindSocketLog, connect, enhanceConnect } from "./connect";
 import { useBeforeMiddleware, withMiddleware } from "@utils/middleware";
 import { write } from "./write";
+import { disconnect, wrapDisconnectEffect } from "./disconnect";
 
 // const logger: Logger = console;
 const logger: Logger = { log() {} };
@@ -25,16 +25,38 @@ export class IpcClientPlugin
     this.promiseHub = new PromiseHub();
     this.socket = new net.Socket(opts);
     this.connOpts = null;
-    enhanceClient.call(this);
+
+    // add logger to emit
+    this.emit = withMiddleware(
+      this.emit,
+      useBeforeMiddleware(([event]) => logger.log(`[client] emit`, event)),
+    );
+
+    this.connect = enhanceConnect(this.connect, logger);
+
+    /**
+     * 1. removeAllListeners
+     * 2. end
+     * 3. destroy
+     * 4. emit disconnect
+     */
+    this.disconnect = withMiddleware(
+      wrapDisconnectEffect.call(this, this.disconnect),
+      async (_, next) => {
+        const socket = this.socket;
+        if (socket.closed) return this;
+        return next();
+      },
+    );
 
     const queueHub = this.queueHub;
     const promiseHub = this.promiseHub;
+    this.write = queueHub.wrapQueue(this.write, () => "write");
     this.connect = promiseHub.wrapSinglePromise(this.connect, "connect");
     this.disconnect = promiseHub.wrapSinglePromise(
       this.disconnect,
       "disconnect",
     );
-    this.write = queueHub.wrapQueue(this.write, () => "write");
   }
 
   get remoteIdentifier(): string | null {
@@ -43,28 +65,28 @@ export class IpcClientPlugin
   }
 
   async connect(connOpts: net.IpcSocketConnectOpts): Promise<this> {
+    const socket = this.socket;
     // connected
-    if (!this.socket.connecting && !this.socket.pending) return this;
+    if (!socket.connecting && !socket.pending) return this;
 
     logger.log(`[client.socket] connect...`);
-    await connect(this.socket, connOpts);
-    bindSocketLog(this.socket, logger);
+    await connect(socket, connOpts);
+    bindSocketLog(socket, logger);
 
-    const handleClose = () => {
-      const identifier = this.remoteIdentifier!;
-      this.queueHub.clear("write");
-      handleClientDisconnected.call(this);
-      this.emit("disconnect", { identifier, passive: true });
-    };
+    const handleClosed = wrapDisconnectEffect.call(this, () => {
+      socket.removeAllListeners();
+      socket.destroy();
+      return false;
+    });
 
-    this.socket
+    socket
       .on("error", (err: Error) => {
         this.emit("error", err);
-        if (this.socket.closed) handleClose();
+        if (socket.closed) handleClosed();
       })
       .on("close", (hadError: boolean) => {
         if (hadError) return;
-        handleClose();
+        handleClosed();
       })
       .on("data", (data: Buffer) => {
         this.emit("data", data);
@@ -75,27 +97,9 @@ export class IpcClientPlugin
     return this;
   }
 
-  /**
-   * 1. removeAllListeners
-   * 2. end
-   * 3. destroy
-   * 4. emit disconnect
-   */
   async disconnect(): Promise<this> {
-    if (this.socket.closed) return this;
-    this.socket.removeAllListeners();
-    this.queueHub.clear("write");
-    await new Promise<void>((resolve, reject) => {
-      try {
-        logger.log(`[client.socket] ending`);
-        this.socket.end(() => resolve());
-      } catch (e) {
-        reject(e);
-      }
-    });
-    const identifier = this.remoteIdentifier!;
-    handleClientDisconnected.call(this);
-    this.emit("disconnect", { identifier, passive: false });
+    const socket = this.socket;
+    await disconnect(socket);
     return this;
   }
 
@@ -108,33 +112,4 @@ export class IpcClientPlugin
     await write(socket, data);
     return this;
   }
-}
-
-function enhanceClient(this: IpcClientPlugin) {
-  // add logger to emit
-  this.emit = withMiddleware(
-    this.emit.bind(this),
-    useBeforeMiddleware(([event]) => logger.log(`[client] emit`, event)),
-  );
-
-  // retry feature
-  this.connect = wrapRetry({
-    times: 30,
-    delay: 1_000,
-    onExecute: this.connect.bind(this),
-    onCheck: (e) =>
-      "code" in e && ["ENOENT", "ECONNREFUSED"].includes(e.code as string),
-    beforeRetry: ({ count, times, error }) =>
-      logger.log(
-        `[socket] reconnect (${count}/${times})`,
-        "code" in error ? error.code : error.message,
-      ),
-  });
-}
-
-function handleClientDisconnected(this: IpcClientPlugin) {
-  this.socket.removeAllListeners();
-  logger.log(`[client.socket] destroying`);
-  this.socket.destroy();
-  this.connOpts = null;
 }

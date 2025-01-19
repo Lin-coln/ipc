@@ -49,3 +49,37 @@ export function useBeforeMiddleware<
     return next();
   };
 }
+
+export function useRetryMiddleware<
+  Args extends any[],
+  R extends Promise<any>,
+  This = unknown,
+>(opts: {
+  times?: number;
+  delay?: number;
+  onCheck: (error: Error, ctx: { cur: number; max: number }) => boolean;
+}): Middleware<Args, R, This> {
+  return (_, next) => {
+    const times = opts.times ?? 30;
+    const delay = opts.delay ?? 1_000;
+    let count = 0;
+    return new Promise(async (resolve, reject) => {
+      while (true) {
+        try {
+          resolve(await next());
+          break;
+        } catch (error: any) {
+          count++;
+          if (opts.onCheck(error, { cur: count, max: times })) {
+            if (count <= times) {
+              await new Promise((resolve) => setTimeout(resolve, delay));
+              continue;
+            }
+          }
+          reject(error);
+          break;
+        }
+      }
+    }) as R;
+  };
+}

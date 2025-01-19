@@ -1,17 +1,12 @@
 import net from "node:net";
 import { Logger } from "@interfaces/index";
-import { useArgsMiddleware, withMiddleware } from "@utils/middleware";
+import {
+  useArgsMiddleware,
+  useRetryMiddleware,
+  withMiddleware,
+} from "@utils/middleware";
 import fixPipeName from "@utils/fixPipeName";
-
-const finalConnect = withMiddleware(
-  connect,
-  //  fix pipe name on win32 platform
-  useArgsMiddleware(([_, opts]) => {
-    opts.path = fixPipeName(opts.path);
-  }),
-);
-
-export { finalConnect as connect };
+import type { IpcClientPlugin } from "./index";
 
 export function bindSocketLog(socket: net.Socket, logger: Logger) {
   const prefix = "[client.socket]";
@@ -27,7 +22,10 @@ export function bindSocketLog(socket: net.Socket, logger: Logger) {
     });
 }
 
-async function connect(socket: net.Socket, connOpts: net.IpcSocketConnectOpts) {
+export async function connect(
+  socket: net.Socket,
+  connOpts: net.IpcSocketConnectOpts,
+) {
   // connected
   if (!socket.connecting && !socket.pending) return;
 
@@ -40,4 +38,35 @@ async function connect(socket: net.Socket, connOpts: net.IpcSocketConnectOpts) {
   }).finally(() => {
     socket.off("error", reject1).off("connect", resolve1);
   });
+}
+
+// retry feature
+export function enhanceConnect<Connect extends IpcClientPlugin["connect"]>(
+  connect: Connect,
+  logger: Logger,
+): Connect {
+  return withMiddleware(
+    connect,
+
+    // fix pipe name on win32 platform
+    useArgsMiddleware(([opts]) => {
+      opts.path = fixPipeName(opts.path);
+    }),
+
+    // retry feature
+    useRetryMiddleware({
+      times: 30,
+      delay: 1_000,
+      onCheck: (err, { cur, max }) => {
+        logger.log(
+          `[socket] reconnect (${cur}/${max})`,
+          "code" in err ? err.code : err.message,
+        );
+        return (
+          "code" in err &&
+          ["ENOENT", "ECONNREFUSED"].includes(err.code as string)
+        );
+      },
+    }),
+  ) as Connect;
 }
