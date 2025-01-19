@@ -1,21 +1,18 @@
 import net from "node:net";
-import fs from "node:fs";
-import process from "node:process";
 import { Logger, ServerEvents, ServerPlugin } from "@interfaces/index";
 import EventBus from "@utils/EventBus";
-import useCleanup from "@utils/useCleanup";
 import { uuid } from "@utils/uuid";
-import fixPipeName from "@utils/fixPipeName";
 import { PromiseHub } from "@utils/wrapSinglePromise";
 import { QueueHub } from "@utils/Queue";
 import { useBeforeMiddleware, withMiddleware } from "@utils/middleware";
-import { listen } from "./listen";
+import { enhanceListen, listen } from "./listen";
 import {
   disconnect,
   enhanceDisconnect,
   wrapDisconnectEffect,
 } from "./disconnect";
 import { write } from "./write";
+import { enhanceClose, wrapCloseEffect } from "./close";
 
 // const logger: Logger = console;
 const logger: Logger = { log() {} };
@@ -47,7 +44,8 @@ export class IpcServerPlugin
       }),
     );
 
-    enhanceServer.call(this);
+    enhanceListen.call(this);
+    enhanceClose.call(this);
     enhanceDisconnect.call(this);
 
     this.listen = this.promiseHub.wrapLock(this.listen, "listen");
@@ -70,10 +68,12 @@ export class IpcServerPlugin
       .on("error", (err) => {
         this.emit("error", err);
       })
-      .on("close", () => {
-        this.server.removeAllListeners();
-        this.emit("close");
-      })
+      .on(
+        "close",
+        wrapCloseEffect.call(this, () => {
+          this.server.removeAllListeners();
+        }),
+      )
       .on("connection", handleSocketConnection.bind(this));
     this.emit("listening");
     return this;
@@ -99,7 +99,6 @@ export class IpcServerPlugin
     const socketIdList = Array.from(this.sockets.keys());
     await Promise.all(socketIdList.map((id) => this.disconnect(id)));
     await closePromise;
-    this.emit("close");
     return this;
   }
 
@@ -112,32 +111,6 @@ export class IpcServerPlugin
     await write(socket, data);
     return this;
   }
-}
-
-function enhanceServer(this: IpcServerPlugin) {
-  const listen = this.listen;
-  this.listen = function (this: IpcServerPlugin, opts: net.ListenOptions) {
-    let sockPath = opts.path;
-    if (!sockPath) return listen.call(this, opts);
-
-    sockPath = fixPipeName(sockPath);
-
-    // wrap clear sock file
-    const clearSock = () =>
-      process.platform !== "win32" &&
-      fs.existsSync(sockPath) &&
-      fs.unlinkSync(sockPath);
-    return listen
-      .call(this, { ...opts, path: sockPath })
-      .then((res) => {
-        useCleanup(clearSock);
-        return res;
-      })
-      .catch((e) => {
-        clearSock();
-        throw e;
-      });
-  };
 }
 
 function handleSocketConnection(this: IpcServerPlugin, socket: net.Socket) {
