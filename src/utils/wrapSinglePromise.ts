@@ -22,7 +22,7 @@ export class PromiseHub {
     return this.promises.set(id, promise);
   }
 
-  wrapSinglePromise<This, Args extends any[], R extends any>(
+  wrapLock<This, Args extends any[], R extends any>(
     fn: (this: This, ...args: Args) => Promise<R>,
     onResolveId?: ((this: This, ...args: Args) => string) | string,
   ): (this: This, ...args: Args) => Promise<R> {

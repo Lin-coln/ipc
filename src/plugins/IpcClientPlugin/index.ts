@@ -3,7 +3,7 @@ import { ClientEvents, ClientPlugin, Logger } from "@interfaces/index";
 import EventBus from "@utils/EventBus";
 import { PromiseHub } from "@utils/wrapSinglePromise";
 import { QueueHub } from "@utils/Queue";
-import { bindSocketLog, connect, enhanceConnect } from "./connect";
+import { connect, enhanceConnect } from "./connect";
 import { useBeforeMiddleware, withMiddleware } from "@utils/middleware";
 import { write } from "./write";
 import {
@@ -38,6 +38,9 @@ export class IpcClientPlugin
 
     enhanceConnect.call(this, logger);
     enhanceDisconnect.call(this, logger);
+
+    this.connect = this.promiseHub.wrapLock(this.connect, "connect");
+    this.disconnect = this.promiseHub.wrapLock(this.disconnect, "disconnect");
     this.write = this.queueHub.wrapQueue(this.write, () => "write");
   }
 
@@ -53,7 +56,7 @@ export class IpcClientPlugin
 
     logger.log(`[client.socket] connect...`);
     await connect(socket, connOpts);
-    bindSocketLog(socket, logger);
+    bindSocketLog(socket);
 
     const handleClosed = wrapDisconnectEffect.call(this, () => {
       socket.removeAllListeners();
@@ -91,4 +94,18 @@ export class IpcClientPlugin
     await write(socket, data);
     return this;
   }
+}
+
+function bindSocketLog(socket: net.Socket) {
+  const prefix = "[client.socket]";
+  socket
+    .on("error", (err) => {
+      logger.log(prefix, `error`, "code" in err ? err.code : err.message);
+    })
+    .on("close", (hadError) => {
+      logger.log(prefix, `close`, { hadError });
+    })
+    .on("data", (data) => {
+      logger.log(prefix, `data`, data.toString("utf8"));
+    });
 }

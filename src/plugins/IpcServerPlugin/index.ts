@@ -44,42 +44,34 @@ export class IpcServerPlugin
 
     const queueHub = this.queueHub;
     const promiseHub = this.promiseHub;
-    this.listen = promiseHub.wrapSinglePromise(this.listen, "listen");
-    this.close = promiseHub.wrapSinglePromise(this.close, "close");
+    this.listen = promiseHub.wrapLock(this.listen, "listen");
+    this.close = promiseHub.wrapLock(this.close, "close");
     this.write = queueHub.wrapQueue(this.write, (id) => `write_${id}`);
-    this.disconnect = promiseHub.wrapSinglePromise(
+    this.disconnect = promiseHub.wrapLock(
       this.disconnect,
       (id) => `disconnect_${id}`,
     );
   }
 
   async listen(opts: net.ListenOptions): Promise<this> {
-    if (this.server.listening) return this;
+    const server = this.server;
+    if (server.listening) return this;
 
-    if (this.server.listening) throw new Error(`failed to listen - listening`);
     logger.log(`[server.server] listen...`);
-
     await new Promise<void>((resolve, reject) => {
-      this.server.on("error", reject).on("listening", resolve).listen(opts);
+      server.on("error", reject).on("listening", resolve).listen(opts);
     }).finally(() => {
-      this.server.removeAllListeners();
+      server.removeAllListeners();
     });
-
-    this.server
+    bindServerLog(server);
+    server
       .on("error", (err) => {
-        logger.log(
-          `[server.server] error`,
-          "code" in err ? err.code : err.message,
-        );
-        // todo: handle error
         this.emit("error", err);
       })
       .on("close", () => {
-        logger.log(`[server.server] close`);
         this.server.removeAllListeners();
         this.emit("close");
       })
-      // todo: listening-connection issue
       .on("connection", handleSocketConnection.bind(this));
     this.emit("listening");
     return this;
@@ -199,21 +191,42 @@ function handleSocketConnection(this: IpcServerPlugin, socket: net.Socket) {
     this.emit("disconnect", { id, passive: true });
   };
 
+  bindSocketLog(socket);
   socket
     .on("error", (err) => {
-      logger.log(
-        `[server.socket] error`,
-        "code" in err ? err.code : err.message,
-      );
       this.emit("error", err);
       if (socket.closed) handleClose();
     })
     .on("close", (hadError: boolean) => {
-      logger.log(`[server.socket] close`);
       if (hadError) return;
       handleClose();
     })
     .on("data", handleData);
   this.sockets.set(id, socket);
   this.emit("connect", id);
+}
+
+function bindSocketLog(socket: net.Socket) {
+  const prefix = "[server.socket]";
+  socket
+    .on("error", (err) => {
+      logger.log(prefix, `error`, "code" in err ? err.code : err.message);
+    })
+    .on("close", (hadError) => {
+      logger.log(prefix, `close`, { hadError });
+    })
+    .on("data", (data) => {
+      logger.log(prefix, `data`, data.toString("utf8"));
+    });
+}
+
+function bindServerLog(server: net.Server) {
+  const prefix = "[server.Server]";
+  server
+    .on("error", (err) => {
+      logger.log(prefix, `error`, "code" in err ? err.code : err.message);
+    })
+    .on("close", () => {
+      logger.log(prefix, `close`);
+    });
 }

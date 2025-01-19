@@ -29,11 +29,6 @@ export function enhanceDisconnect(this: IpcClientPlugin, logger: Logger) {
       return await next();
     },
   );
-
-  this.disconnect = this.promiseHub.wrapSinglePromise(
-    this.disconnect,
-    "disconnect",
-  );
 }
 
 export function wrapDisconnectEffect<T extends (...args: any[]) => any>(

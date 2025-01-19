@@ -7,7 +7,7 @@ describe("general usage", async () => {
   const result = "foobar";
   const mockHandler = vi.fn();
   let resolve1: (value: string) => void;
-  const wrappedFn = hub.wrapSinglePromise((...args) => {
+  const wrappedFn = hub.wrapLock((...args) => {
     const { promise, resolve } = Promise.withResolvers();
     resolve1 = resolve;
     return promise.then((result) => {
@@ -35,7 +35,7 @@ describe("arg - onResolveId as function", async () => {
   const hub = new PromiseHub();
 
   const resolveId = (a, b) => a + b;
-  const wrappedFn = hub.wrapSinglePromise(
+  const wrappedFn = hub.wrapLock(
     async (a: string, b: string) => a + b,
     resolveId,
   );
@@ -56,7 +56,7 @@ describe("error case", () => {
   const errorMessage = "Test Error";
   it("should reject reason if external error", async () => {
     let reject1: (reason?: any) => void;
-    const wrappedFn = hub.wrapSinglePromise(() => {
+    const wrappedFn = hub.wrapLock(() => {
       const { promise, reject } = Promise.withResolvers();
       reject1 = reject;
       return promise;
@@ -69,7 +69,7 @@ describe("error case", () => {
     }).rejects.toBe(errorMessage);
   });
   it("should throw error if internal error", async () => {
-    const wrappedFn = hub.wrapSinglePromise(123 as any);
+    const wrappedFn = hub.wrapLock(123 as any);
     await expect(() => wrappedFn()).rejects.toThrow(
       "fn.apply is not a function",
     );

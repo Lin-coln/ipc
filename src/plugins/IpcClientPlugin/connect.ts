@@ -8,20 +8,6 @@ import {
 import fixPipeName from "@utils/fixPipeName";
 import type { IpcClientPlugin } from "./index";
 
-export function bindSocketLog(socket: net.Socket, logger: Logger) {
-  const prefix = "[client.socket]";
-  socket
-    .on("error", (err) => {
-      logger.log(prefix, `error`, "code" in err ? err.code : err.message);
-    })
-    .on("close", (hadError) => {
-      logger.log(prefix, `close`, { hadError });
-    })
-    .on("data", (data) => {
-      logger.log(prefix, `data`, data.toString("utf8"));
-    });
-}
-
 export async function connect(
   socket: net.Socket,
   connOpts: net.IpcSocketConnectOpts,
@@ -65,6 +51,4 @@ export function enhanceConnect(this: IpcClientPlugin, logger: Logger) {
       },
     }),
   );
-
-  this.connect = this.promiseHub.wrapSinglePromise(this.connect, "connect");
 }
