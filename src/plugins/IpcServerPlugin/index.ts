@@ -9,6 +9,7 @@ import fixPipeName from "@utils/fixPipeName";
 import { PromiseHub } from "@utils/wrapSinglePromise";
 import { QueueHub } from "@utils/Queue";
 import { useBeforeMiddleware, withMiddleware } from "@utils/middleware";
+import { listen } from "./listen";
 
 // const logger: Logger = console;
 const logger: Logger = { log() {} };
@@ -58,11 +59,7 @@ export class IpcServerPlugin
     if (server.listening) return this;
 
     logger.log(`[server.server] listen...`);
-    await new Promise<void>((resolve, reject) => {
-      server.on("error", reject).on("listening", resolve).listen(opts);
-    }).finally(() => {
-      server.removeAllListeners();
-    });
+    await listen(server, opts);
     bindServerLog(server);
     server
       .on("error", (err) => {
@@ -84,6 +81,7 @@ export class IpcServerPlugin
       return this;
     }
     this.sockets.delete(id);
+
     this.queueHub.clear(`write_${id}`);
     this.queueHub.clear(`read_${id}`);
 
@@ -173,14 +171,7 @@ function handleSocketConnection(this: IpcServerPlugin, socket: net.Socket) {
   const id = uuid();
   logger.log(`[server.socket] connection`, id);
 
-  const handleData = this.queueHub.wrapQueue(
-    async (data: Buffer) => {
-      logger.log(`[server.socket] data`, data.toString("utf8"));
-      this.emit("data", id, data);
-    },
-    () => `read_${id}`,
-  );
-
+  bindSocketLog(socket);
   const handleClose = () => {
     this.sockets.delete(id);
     this.queueHub.clear(`write_${id}`);
@@ -190,8 +181,10 @@ function handleSocketConnection(this: IpcServerPlugin, socket: net.Socket) {
     socket.destroy();
     this.emit("disconnect", { id, passive: true });
   };
-
-  bindSocketLog(socket);
+  const handleData = async (data: Buffer) => {
+    logger.log(`[server.socket] data`, data.toString("utf8"));
+    this.emit("data", id, data);
+  };
   socket
     .on("error", (err) => {
       this.emit("error", err);
@@ -201,7 +194,10 @@ function handleSocketConnection(this: IpcServerPlugin, socket: net.Socket) {
       if (hadError) return;
       handleClose();
     })
-    .on("data", handleData);
+    .on(
+      "data",
+      this.queueHub.wrapQueue(handleData, () => `read_${id}`),
+    );
   this.sockets.set(id, socket);
   this.emit("connect", id);
 }

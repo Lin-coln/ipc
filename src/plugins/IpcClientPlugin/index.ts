@@ -57,13 +57,11 @@ export class IpcClientPlugin
     logger.log(`[client.socket] connect...`);
     await connect(socket, connOpts);
     bindSocketLog(socket);
-
     const handleClosed = wrapDisconnectEffect.call(this, () => {
       socket.removeAllListeners();
       socket.destroy();
       return false;
     });
-
     socket
       .on("error", (err: Error) => {
         this.emit("error", err);
