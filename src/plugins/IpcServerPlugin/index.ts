@@ -8,6 +8,7 @@ import { uuid } from "@utils/uuid";
 import fixPipeName from "@utils/fixPipeName";
 import { PromiseHub } from "@utils/wrapSinglePromise";
 import { QueueHub } from "@utils/Queue";
+import { useBeforeMiddleware, withMiddleware } from "@utils/middleware";
 
 // const logger: Logger = console;
 const logger: Logger = { log() {} };
@@ -26,6 +27,19 @@ export class IpcServerPlugin
     this.promiseHub = new PromiseHub();
     this.server = new net.Server(opts);
     this.sockets = new Map();
+
+    // add logger to emit
+    this.emit = withMiddleware(
+      this.emit,
+      useBeforeMiddleware(([event, ...rest]) => {
+        if (event === "disconnect") {
+          logger.log(`[server] emit`, event, ...rest);
+        } else {
+          logger.log(`[server] emit`, event);
+        }
+      }),
+    );
+
     enhanceServer.call(this);
 
     const queueHub = this.queueHub;
@@ -42,15 +56,11 @@ export class IpcServerPlugin
   async listen(opts: net.ListenOptions): Promise<this> {
     if (this.server.listening) return this;
 
+    if (this.server.listening) throw new Error(`failed to listen - listening`);
+    logger.log(`[server.server] listen...`);
+
     await new Promise<void>((resolve, reject) => {
-      try {
-        if (this.server.listening)
-          throw new Error(`failed to listen - listening`);
-        logger.log(`[server.server] listen...`);
-        this.server.on("error", reject).on("listening", resolve).listen(opts);
-      } catch (e) {
-        reject(e);
-      }
+      this.server.on("error", reject).on("listening", resolve).listen(opts);
     }).finally(() => {
       this.server.removeAllListeners();
     });
@@ -62,18 +72,15 @@ export class IpcServerPlugin
           "code" in err ? err.code : err.message,
         );
         // todo: handle error
-        logger.log(`[server] emit error`);
         this.emit("error", err);
       })
       .on("close", () => {
         logger.log(`[server.server] close`);
         this.server.removeAllListeners();
-        logger.log(`[server] emit close`);
         this.emit("close");
       })
       // todo: listening-connection issue
       .on("connection", handleSocketConnection.bind(this));
-    logger.log(`[server] emit listening`);
     this.emit("listening");
     return this;
   }
@@ -100,7 +107,6 @@ export class IpcServerPlugin
     });
     logger.log(`[server.socket] destroying`);
     socket.destroy();
-    logger.log(`[server] emit disconnect`, id);
     this.emit("disconnect", { id, passive: false });
     return this;
   }
@@ -178,7 +184,6 @@ function handleSocketConnection(this: IpcServerPlugin, socket: net.Socket) {
   const handleData = this.queueHub.wrapQueue(
     async (data: Buffer) => {
       logger.log(`[server.socket] data`, data.toString("utf8"));
-      logger.log(`[server] emit data`);
       this.emit("data", id, data);
     },
     () => `read_${id}`,
@@ -191,7 +196,6 @@ function handleSocketConnection(this: IpcServerPlugin, socket: net.Socket) {
     socket.removeAllListeners();
     logger.log(`[server.socket] destroying`);
     socket.destroy();
-    logger.log(`[server] emit disconnect`, id);
     this.emit("disconnect", { id, passive: true });
   };
 
@@ -201,7 +205,6 @@ function handleSocketConnection(this: IpcServerPlugin, socket: net.Socket) {
         `[server.socket] error`,
         "code" in err ? err.code : err.message,
       );
-      logger.log(`[server] emit error`);
       this.emit("error", err);
       if (socket.closed) handleClose();
     })
@@ -212,6 +215,5 @@ function handleSocketConnection(this: IpcServerPlugin, socket: net.Socket) {
     })
     .on("data", handleData);
   this.sockets.set(id, socket);
-  logger.log(`[server] emit connect`);
   this.emit("connect", id);
 }
