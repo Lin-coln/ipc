@@ -130,13 +130,17 @@ export class IpcClientPlugin
     const write = async (data: Buffer) => {
       const done = socket.write(data);
       if (done) return;
+
+      let handler: ClientEvents["disconnect"];
       await new Promise<void>((resolve, reject) => {
-        const handler: ClientEvents["disconnect"] = (ctx) => {
+        handler = (ctx) => {
           this.off("disconnect", handler);
           reject(new Error(`[client] failed to write - disconnect`));
         };
         this.on("disconnect", handler);
         socket.once("drain", () => resolve());
+      }).finally(() => {
+        handler && this.off("disconnect", handler);
       });
     };
 

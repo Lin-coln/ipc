@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach, Mock, afterAll } from "vitest";
 import { IpcClientPlugin } from "../../src";
+import { uuid } from "../../src/utils/uuid";
 import path from "path";
 import url from "node:url";
 import net from "node:net";
@@ -7,7 +8,7 @@ import fs from "node:fs";
 const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectDirname = path.resolve(__dirname, "../..");
-const pipeFilename = path.join(projectDirname, "./scripts/pipe.sock");
+const pipeFilename = path.join(projectDirname, `./scripts/pipe-${uuid()}.sock`);
 
 const connectOpts = { path: pipeFilename };
 const server = getSocketServer();
@@ -33,11 +34,11 @@ describe("IpcClientPlugin basic functionality", async () => {
 
   const mockOnData1 = vi.fn();
   const message1 = "message from client";
-  await ipcClient.on("data", mockOnData1).write(Buffer.from(message1, "utf8"));
+  await ipcClient.on("data", mockOnData1).write(Buffer.from(message1));
   await sleep(10);
   ipcClient.off("data", mockOnData1);
   it("should send & receive data", () => {
-    expect(mockOnData1).toHaveBeenCalledWith(Buffer.from(message1, "utf8"));
+    expect(mockOnData1).toHaveBeenCalledWith(Buffer.from(message1));
     expect(mockOnData1).toHaveBeenCalledTimes(1);
   });
 
@@ -54,7 +55,7 @@ describe("IpcClientPlugin basic functionality", async () => {
 
   const mockOnConnect2 = vi.fn();
   await server.close();
-  await Promise.allSettled([
+  await Promise.all([
     ipcClient.on("connect", mockOnConnect2).connect(connectOpts),
     server.open(connectOpts),
   ]);
@@ -125,7 +126,6 @@ describe("IpcClientPlugin write large data", async () => {
     Array.from({ length: writableHighWaterMark / 2 }, (_, i) => i + 1).join(
       ",",
     ),
-    "utf8",
   );
   await ipcClient.write(origin);
   await sleep(100);

@@ -1,7 +1,12 @@
 import net from "node:net";
 import fs from "node:fs";
 import process from "node:process";
-import { Logger, ServerEvents, ServerPlugin } from "@interfaces/index";
+import {
+  ClientEvents,
+  Logger,
+  ServerEvents,
+  ServerPlugin,
+} from "@interfaces/index";
 import EventBus from "@utils/EventBus";
 import useCleanup from "@utils/useCleanup";
 import { uuid } from "@utils/uuid";
@@ -120,17 +125,20 @@ export class IpcServerPlugin
     const done = socket.write(data);
     if (done) return this;
 
-    return new Promise((resolve, reject) => {
-      const handler: ServerEvents["disconnect"] = (ctx) => {
+    let handler: ServerEvents["disconnect"];
+    await new Promise<void>((resolve, reject) => {
+      handler = (ctx) => {
         if (ctx.id !== id) return;
         this.off("disconnect", handler);
-        reject(new Error(`[server] failed to write - disconnect`));
+        reject(new Error(`[client] failed to write - disconnect`));
       };
       this.on("disconnect", handler);
-      socket.once("drain", () => {
-        this.write(id, data).then(resolve, reject);
-      });
+      socket.once("drain", () => resolve());
+    }).finally(() => {
+      handler && this.off("disconnect", handler);
     });
+
+    return this;
   }
 }
 
@@ -173,6 +181,17 @@ function handleSocketConnection(this: IpcServerPlugin, socket: net.Socket) {
     () => `read_${id}`,
   );
 
+  const handleClose = () => {
+    this.sockets.delete(id);
+    this.queueHub.clear(`write_${id}`);
+    this.queueHub.clear(`read_${id}`);
+    socket.removeAllListeners();
+    logger.log(`[server.socket] destroying`);
+    socket.destroy();
+    logger.log(`[server] emit disconnect`, id);
+    this.emit("disconnect", { id, passive: true });
+  };
+
   socket
     .on("error", (err) => {
       logger.log(
@@ -181,19 +200,16 @@ function handleSocketConnection(this: IpcServerPlugin, socket: net.Socket) {
       );
       logger.log(`[server] emit error`);
       this.emit("error", err);
+
+      if (socket.closed) {
+        handleClose();
+      }
     })
     .on("close", (hadError: boolean) => {
       logger.log(`[server.socket] close`);
       if (hadError) return;
 
-      this.sockets.delete(id);
-      this.queueHub.clear(`write_${id}`);
-      this.queueHub.clear(`read_${id}`);
-      socket.removeAllListeners();
-      logger.log(`[server.socket] destroying`);
-      socket.destroy();
-      logger.log(`[server] emit disconnect`, id);
-      this.emit("disconnect", { id, passive: true });
+      handleClose();
     })
     .on("data", handleData);
   this.sockets.set(id, socket);
