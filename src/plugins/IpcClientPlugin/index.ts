@@ -6,7 +6,11 @@ import { QueueHub } from "@utils/Queue";
 import { bindSocketLog, connect, enhanceConnect } from "./connect";
 import { useBeforeMiddleware, withMiddleware } from "@utils/middleware";
 import { write } from "./write";
-import { disconnect, wrapDisconnectEffect } from "./disconnect";
+import {
+  disconnect,
+  enhanceDisconnect,
+  wrapDisconnectEffect,
+} from "./disconnect";
 
 // const logger: Logger = console;
 const logger: Logger = { log() {} };
@@ -32,31 +36,9 @@ export class IpcClientPlugin
       useBeforeMiddleware(([event]) => logger.log(`[client] emit`, event)),
     );
 
-    this.connect = enhanceConnect(this.connect, logger);
-
-    /**
-     * 1. removeAllListeners
-     * 2. end
-     * 3. destroy
-     * 4. emit disconnect
-     */
-    this.disconnect = withMiddleware(
-      wrapDisconnectEffect.call(this, this.disconnect),
-      async (_, next) => {
-        const socket = this.socket;
-        if (socket.closed) return this;
-        return next();
-      },
-    );
-
-    const queueHub = this.queueHub;
-    const promiseHub = this.promiseHub;
-    this.write = queueHub.wrapQueue(this.write, () => "write");
-    this.connect = promiseHub.wrapSinglePromise(this.connect, "connect");
-    this.disconnect = promiseHub.wrapSinglePromise(
-      this.disconnect,
-      "disconnect",
-    );
+    enhanceConnect.call(this, logger);
+    enhanceDisconnect.call(this, logger);
+    this.write = this.queueHub.wrapQueue(this.write, () => "write");
   }
 
   get remoteIdentifier(): string | null {
@@ -105,9 +87,6 @@ export class IpcClientPlugin
 
   async write(data: Buffer): Promise<this> {
     const socket = this.socket;
-    if (socket.pending)
-      // not connected
-      throw new Error(`[client] failed to write - not connected`);
     logger.log(`[client.socket] write`, data.toString("utf8"));
     await write(socket, data);
     return this;

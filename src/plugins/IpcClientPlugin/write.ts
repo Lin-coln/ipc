@@ -23,6 +23,10 @@ export async function write(socket: net.Socket, data: Buffer): Promise<void> {
 }
 
 async function writeChunk(socket: net.Socket, data: Buffer): Promise<void> {
+  // not connected
+  if (socket.pending)
+    throw new Error(`[client] failed to write - not connected`);
+
   const done = socket.write(data);
   if (done) return;
 

@@ -1,7 +1,13 @@
 import net from "node:net";
 import { useBeforeMiddleware, withMiddleware } from "@utils/middleware";
 import type { IpcClientPlugin } from "./index";
+import { Logger } from "@interfaces/index";
 
+/**
+ * 1. removeAllListeners
+ * 2. end
+ * 3. destroy
+ */
 export async function disconnect(socket: net.Socket) {
   socket.removeAllListeners();
   await new Promise<void>((resolve, reject) => {
@@ -12,6 +18,22 @@ export async function disconnect(socket: net.Socket) {
     }
   });
   socket.destroy();
+}
+
+export function enhanceDisconnect(this: IpcClientPlugin, logger: Logger) {
+  this.disconnect = withMiddleware(
+    wrapDisconnectEffect.call(this, this.disconnect),
+    async (_, next) => {
+      const socket = this.socket;
+      if (socket.closed) return this;
+      return await next();
+    },
+  );
+
+  this.disconnect = this.promiseHub.wrapSinglePromise(
+    this.disconnect,
+    "disconnect",
+  );
 }
 
 export function wrapDisconnectEffect<T extends (...args: any[]) => any>(

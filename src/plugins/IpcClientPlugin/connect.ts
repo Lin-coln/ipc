@@ -40,13 +40,9 @@ export async function connect(
   });
 }
 
-// retry feature
-export function enhanceConnect<Connect extends IpcClientPlugin["connect"]>(
-  connect: Connect,
-  logger: Logger,
-): Connect {
-  return withMiddleware(
-    connect,
+export function enhanceConnect(this: IpcClientPlugin, logger: Logger) {
+  this.connect = withMiddleware(
+    this.connect,
 
     // fix pipe name on win32 platform
     useArgsMiddleware(([opts]) => {
@@ -68,5 +64,7 @@ export function enhanceConnect<Connect extends IpcClientPlugin["connect"]>(
         );
       },
     }),
-  ) as Connect;
+  );
+
+  this.connect = this.promiseHub.wrapSinglePromise(this.connect, "connect");
 }
