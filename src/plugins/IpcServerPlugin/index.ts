@@ -107,7 +107,7 @@ export class IpcServerPlugin
     if (!socket) {
       throw new Error(`[server] failed to write - socket not found: ${id}`);
     }
-    logger.log(`[server.socket] write`, data.toString("utf8"));
+    logger.log(`[server.socket] write`, data.length);
     await write(socket, data);
     return this;
   }
@@ -149,7 +149,7 @@ function bindSocketLog(socket: net.Socket) {
       logger.log(prefix, `close`, { hadError });
     })
     .on("data", (data) => {
-      logger.log(prefix, `data`, data.toString("utf8"));
+      logger.log(prefix, `data`, data.length);
     });
 }
 

@@ -88,7 +88,7 @@ export class IpcClientPlugin
 
   async write(data: Buffer): Promise<this> {
     const socket = this.socket;
-    logger.log(`[client.socket] write`, data.toString("utf8"));
+    logger.log(`[client.socket] write`, data.length);
     await write(socket, data);
     return this;
   }
@@ -104,6 +104,6 @@ function bindSocketLog(socket: net.Socket) {
       logger.log(prefix, `close`, { hadError });
     })
     .on("data", (data) => {
-      logger.log(prefix, `data`, data.toString("utf8"));
+      logger.log(prefix, `data`, data.length);
     });
 }
