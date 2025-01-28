@@ -34,21 +34,21 @@ export interface ServerPlugin<ListenOpts> extends EventBus<ServerEvents> {
   write(id: string, data: Buffer): Promise<this>;
 }
 
-export type IClientConnOpts = { path: string };
-export type IClientMessage = object | string;
-export interface IClientEvents<ReceivedMsg = IClientMessage>
-  extends ClientEvents {
-  message(message: ReceivedMsg): void;
-}
-export interface IClient<
-  PostMsg extends IClientMessage = IClientMessage,
-  ReceivedMsg extends IClientMessage = IClientMessage,
-> extends EventBus<IClientEvents<ReceivedMsg>> {
-  readonly remoteIdentifier: string | null;
-  connect(opts: IClientConnOpts): Promise<this>;
-  disconnect(): Promise<this>;
-  write(data: Buffer): Promise<this>;
-  // postMessage(data: PostMsg): Promise<this>;
-  // onDeserialize(data: Buffer): IClientMessage;
-  // onSerialize(data: IClientMessage): Buffer;
-}
+// export type IClientConnOpts = { path: string };
+// export type IClientMessage = object | string;
+// export interface IClientEvents<ReceivedMsg = IClientMessage>
+//   extends ClientEvents {
+//   message(message: ReceivedMsg): void;
+// }
+// export interface IClient<
+//   PostMsg extends IClientMessage = IClientMessage,
+//   ReceivedMsg extends IClientMessage = IClientMessage,
+// > extends EventBus<IClientEvents<ReceivedMsg>> {
+//   readonly remoteIdentifier: string | null;
+//   connect(opts: IClientConnOpts): Promise<this>;
+//   disconnect(): Promise<this>;
+//   write(data: Buffer): Promise<this>;
+//   // postMessage(data: PostMsg): Promise<this>;
+//   // onDeserialize(data: Buffer): IClientMessage;
+//   // onSerialize(data: IClientMessage): Buffer;
+// }
