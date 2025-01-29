@@ -21,7 +21,13 @@ export type SupportedType =
   | Buffer
   // set
   | Set<SupportedType>
-  | Map<SupportedType, SupportedType>;
+  | Array<SupportedType>
+  // map
+  | Map<SupportedType, SupportedType>
+  | JsonObject;
+interface JsonObject {
+  [key: number | string]: SupportedType;
+}
 
 export enum WireType {
   // basic

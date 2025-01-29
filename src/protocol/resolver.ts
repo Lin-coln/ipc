@@ -1,4 +1,4 @@
-import type { SupportedType } from "./interfaces";
+import { SupportedType } from "./interfaces";
 import { getWireResolver, WireType } from "./interfaces/constants";
 
 export function encodeWire<T extends SupportedType>(value: T): Buffer {
@@ -46,6 +46,18 @@ export function encodeContent<T extends SupportedType>(
         : (BigInt((value as number).toString()) as T);
   }
 
+  if (type === WireType.Set) {
+    if (Array.isArray(value)) {
+      value = new Set<SupportedType>(value) as T;
+    }
+  }
+
+  if (type === WireType.Map) {
+    if (Object.prototype.toString.call(value) === "[object Object]") {
+      value = new Map(Object.entries(value)) as T;
+    }
+  }
+
   return resolver.encode(value);
 }
 
@@ -55,7 +67,22 @@ export function decodeContent<T extends SupportedType>(
   type: WireType,
 ): { value: T; offset: number } {
   const resolver = getWireResolver<T>(type);
-  return resolver.decode(buffer, offset);
+  const { value: val, offset: ofs } = resolver.decode(buffer, offset);
+
+  let value: T = val;
+  if (typeof val === "bigint") {
+    if (
+      val >= BigInt(Number.MIN_SAFE_INTEGER) &&
+      val <= BigInt(Number.MAX_SAFE_INTEGER)
+    ) {
+      value = Number(val) as T;
+    }
+  }
+
+  return {
+    value,
+    offset: ofs,
+  };
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -88,12 +115,15 @@ export function resolveWireTypeFromSupportedValue<T extends SupportedType>(
     return WireType.Bytes;
   }
 
-  if (typeof value === "object") {
+  if (value && typeof value === "object") {
     if (value instanceof Set || Array.isArray(value)) {
       return WireType.Set;
     }
 
-    if (value instanceof Map || typeof value === "object") {
+    if (
+      value instanceof Map ||
+      Object.prototype.toString.call(value) === "[object Object]"
+    ) {
       return WireType.Map;
     }
   }

@@ -22,6 +22,20 @@ const ls: SupportedType[] = [
     ["bar", "adsfasdfads"],
     ["foobar", 213213.122],
   ]),
+
+  [13, 23, 2.23, "adf", 3n, false, { fo: 3224 }, [], {}],
+  {
+    fff: [],
+    sd: {},
+    foo: 123,
+    shit: [123, 2],
+    bar: "12312",
+    foobar: {
+      zoo: 123,
+      fooo: true,
+      barrr: 3.212,
+    },
+  },
 ];
 
 ls.forEach((item) => {
