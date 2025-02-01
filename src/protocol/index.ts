@@ -1,10 +1,8 @@
-import type { SupportedType } from "./interfaces";
+import { SupportedType } from "./interfaces";
+import { WireType } from "./constants";
 
-import {
-  resolveWireTypeFromSupportedValue,
-  encodeContent,
-  decodeContent,
-} from "./resolver";
+import { WireEncoder } from "./resolvers/encoder";
+import { WireDecoder } from "./resolvers/decoder";
 
 const ls: SupportedType[] = [
   -1,
@@ -22,7 +20,6 @@ const ls: SupportedType[] = [
     ["bar", "adsfasdfads"],
     ["foobar", 213213.122],
   ]),
-
   [13, 23, 2.23, "adf", 3n, false, { fo: 3224 }, [], {}],
   {
     fff: [],
@@ -36,16 +33,49 @@ const ls: SupportedType[] = [
       barrr: 3.212,
     },
   },
+  [
+    "type_set",
+    "foo",
+    "bar",
+    "foobar1",
+    "foobar2",
+    "foobar3",
+    "foobar4",
+    "foobar5",
+    "foobar6",
+    "foobar7",
+    "foobar8",
+    "foobar9",
+    "foobar00",
+  ],
 ];
 
-ls.forEach((item) => {
-  const type = resolveWireTypeFromSupportedValue(item);
-  const encoded = encodeContent(item, type);
-  const decoded = decodeContent(encoded, 0, type);
-  console.log(`val:`, item, decoded.value);
-  // console.log(encoded);
-  console.log(toBinStr(encoded));
-});
+// ls.forEach((item) => {
+//   execute(item);
+//   console.log("");
+// });
+
+execute("😎");
+
+function execute(item: SupportedType) {
+  console.log(`origin:`, item);
+  const isTypeArr = Array.isArray(item) && item[0] === "type_set";
+  const encoder = isTypeArr
+    ? new WireEncoder(item, WireType.TypeArray).setTypeArrParams({
+        type: WireType.String,
+      })
+    : new WireEncoder(item);
+
+  const type = encoder.encodeType();
+  const content = encoder.encodeContent();
+  console.log(`len: ${content.length}`);
+  console.log("type:", toBinStr(type));
+  console.log("content:", toBinStr(content));
+
+  const decoder = new WireDecoder(content);
+  const decoded = decoder.decodeContent(encoder.wireType);
+  console.log(`decoded:`, decoded);
+}
 
 function toBinStr(bufferOrNum: Buffer | number): string {
   let buffer: Buffer;
