@@ -4,7 +4,6 @@ import { WireType } from "../../constants";
 export const string: WireResolver<string> = {
   encode(ctx: EncodeContext, val: string): Buffer {
     const buf = Buffer.from(val, "utf8");
-
     return Buffer.concat([
       ctx.sub(buf.length, WireType.VarInt).encodeContent(),
       buf,

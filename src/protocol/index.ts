@@ -55,14 +55,21 @@ const ls: SupportedType[] = [
 //   console.log("");
 // });
 
-execute("😎");
+execute([
+  [1, 2, 3],
+  [4, 5, 6],
+]);
 
 function execute(item: SupportedType) {
   console.log(`origin:`, item);
-  const isTypeArr = Array.isArray(item) && item[0] === "type_set";
+  // const isTypeArr = Array.isArray(item) && item[0] === "type_set";
+  const isTypeArr = true;
   const encoder = isTypeArr
-    ? new WireEncoder(item, WireType.TypeArray).setTypeArrParams({
-        type: WireType.String,
+    ? new WireEncoder(item, WireType.TypeArray).setWireTypeParams({
+        type: WireType.TypeArray,
+        nested: {
+          type: WireType.VarInt,
+        },
       })
     : new WireEncoder(item);
 

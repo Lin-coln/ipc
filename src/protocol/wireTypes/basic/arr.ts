@@ -13,7 +13,7 @@ export const arr: WireResolver<any[]> = {
       ...val.values().map((val) => ctx.sub(val).encode()),
     ]);
   },
-  decode<T extends SupportedType>(ctx: DecodeContext, buf: Buffer): T[] {
+  decode<T extends SupportedType>(ctx: DecodeContext): T[] {
     const arr: T[] = [];
     const len = ctx.decodeContent<bigint>(WireType.VarInt);
     Array.from({ length: Number(len) }).forEach(() => {

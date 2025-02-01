@@ -8,10 +8,9 @@ export type EncodeContext = {
   encode(): Buffer;
   encodeType(type: WireType): Buffer;
   encodeContent(): Buffer;
-};
 
-export type TypeArrEncodeContext = EncodeContext & {
-  getParams(): { type: WireType };
+  setWireTypeParams<Params>(params: Params): EncodeContext;
+  getWireTypeParams<Params>(): Params;
 };
 
 export type DecodeContext = {
@@ -26,3 +25,9 @@ export type WireResolver<T extends SupportedType> = {
   encode(ctx: EncodeContext, val: T): Buffer;
   decode(ctx: DecodeContext, buf: Buffer): T;
 };
+
+//
+export interface TypeArrParams {
+  type: WireType;
+  nested?: object;
+}

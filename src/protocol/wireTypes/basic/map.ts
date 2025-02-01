@@ -21,7 +21,6 @@ export const map: WireResolver<Map<SupportedType, SupportedType>> = {
   },
   decode<K extends SupportedType, V extends SupportedType>(
     ctx: DecodeContext,
-    buf: Buffer,
   ): Map<K, V> {
     const map = new Map<K, V>();
     const size = ctx.decodeContent<bigint>(WireType.VarInt);

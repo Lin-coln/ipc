@@ -1,12 +1,12 @@
 import { getWireResolver, SupportedType, WireType } from "../constants";
-import type { EncodeContext } from "../interfaces";
+import { EncodeContext } from "../interfaces";
 
 export class WireEncoder<T extends SupportedType> implements EncodeContext {
   origin: T;
   wireType: WireType;
   #value: T;
 
-  #typeArrParams: { type: WireType } | null = null;
+  #wireTypeParams: unknown | null = null;
 
   constructor(origin: T, wireType?: WireType) {
     this.origin = origin;
@@ -34,17 +34,15 @@ export class WireEncoder<T extends SupportedType> implements EncodeContext {
     return resolver.encode(this, this.#value);
   }
 
-  getParams<T>(): T {
-    if (this.wireType === WireType.TypeArray && this.#typeArrParams) {
-      return this.#typeArrParams as T;
-    }
-
-    throw new Error(`Failed to get params of ${this.wireType}`);
-  }
-
-  setTypeArrParams(params: { type: WireType }): this {
-    this.#typeArrParams = params;
+  setWireTypeParams<Params>(params: Params): this {
+    this.#wireTypeParams = params ?? null;
     return this;
+  }
+  getWireTypeParams<Params>(): Params {
+    if (this.#wireTypeParams) {
+      return this.#wireTypeParams as Params;
+    }
+    throw new Error(`Failed to get params of ${this.wireType}`);
   }
 }
 
@@ -96,15 +94,13 @@ function preprocessValue<T extends SupportedType>(type: WireType, value: T): T {
 
   if (value && typeof value === "object") {
     if (value instanceof Set) {
-      if (
-        [WireType.Array, WireType.TypeArray, WireType.TypesArray].includes(type)
-      ) {
+      if ([WireType.Array, WireType.TypeArray].includes(type)) {
         return Array.from(value) as T;
       }
     }
 
     if (Object.prototype.toString.call(value) === "[object Object]") {
-      if ([WireType.Map, WireType.TypeMap, WireType.TypesMap].includes(type)) {
+      if ([WireType.Map, WireType.TypeMap].includes(type)) {
         return new Map(Object.entries(value)) as T;
       }
     }

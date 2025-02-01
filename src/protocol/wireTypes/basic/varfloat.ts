@@ -1,4 +1,3 @@
-import { svarint, varint } from "./varint";
 import { DecodeContext, EncodeContext, WireResolver } from "../../interfaces";
 import { WireType } from "../../constants";
 
@@ -10,7 +9,7 @@ export const varfloat: WireResolver<number> = {
       ctx.sub(int, WireType.VarInt).encodeContent(),
     ]);
   },
-  decode(ctx: DecodeContext, buffer: Buffer): number {
+  decode(ctx: DecodeContext): number {
     const exp = ctx.decodeContent<bigint>(WireType.VarInt);
     const int = ctx.decodeContent<bigint>(WireType.VarInt);
     return parseFloatValue(int, exp);
@@ -25,7 +24,7 @@ export const svarfloat: WireResolver<number> = {
       ctx.sub(int, WireType.SVarInt).encodeContent(),
     ]);
   },
-  decode(ctx: DecodeContext, buffer: Buffer): number {
+  decode(ctx: DecodeContext): number {
     const exp = ctx.decodeContent<bigint>(WireType.VarInt);
     const int = ctx.decodeContent<bigint>(WireType.SVarInt);
     return parseFloatValue(int, exp);
