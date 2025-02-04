@@ -1,8 +1,10 @@
 import { SupportedType } from "./interfaces";
 import { WireType } from "./constants";
 
-import { WireEncoder } from "./resolvers/encoder";
-import { WireDecoder } from "./resolvers/decoder";
+import { EncodeContext } from "./encoder";
+import { DecodeContext } from "./decoder";
+import { EncodeUtils } from "./constants/EncodeUtils";
+import { DecodeUtils } from "./constants/DecodeUtils";
 
 const ls: SupportedType[] = [
   -1,
@@ -50,37 +52,31 @@ const ls: SupportedType[] = [
   ],
 ];
 
-// ls.forEach((item) => {
-//   execute(item);
-//   console.log("");
-// });
+ls.forEach((item) => {
+  execute(item);
+  console.log("");
+});
 
-execute([
-  [1, 2, 3],
-  [4, 5, 6],
-]);
+// execute(new Set([1, 2, 3, "asdf", true, -324324]));
 
 function execute(item: SupportedType) {
   console.log(`origin:`, item);
-  // const isTypeArr = Array.isArray(item) && item[0] === "type_set";
-  const isTypeArr = true;
-  const encoder = isTypeArr
-    ? new WireEncoder(item, WireType.TypeArray).setWireTypeParams({
-        type: WireType.TypeArray,
-        nested: {
-          type: WireType.VarInt,
-        },
+  const isTypeArr = Array.isArray(item) && item[0] === "type_set";
+  // const isTypeArr = true;
+  const encodeCtx = isTypeArr
+    ? new EncodeContext().setType(WireType.TypeArray, {
+        type: WireType.String,
       })
-    : new WireEncoder(item);
+    : new EncodeContext(item);
 
-  const type = encoder.encodeType();
-  const content = encoder.encodeContent();
-  console.log(`len: ${content.length}`);
+  const type = EncodeUtils.encodeType(encodeCtx.type!);
+  const body = EncodeUtils.encodeBody(encodeCtx, item);
+  console.log(`len: ${body.length}`);
   console.log("type:", toBinStr(type));
-  console.log("content:", toBinStr(content));
+  console.log("body:", toBinStr(body));
 
-  const decoder = new WireDecoder(content);
-  const decoded = decoder.decodeContent(encoder.wireType);
+  const decodeCtx = new DecodeContext(body).setType(encodeCtx.type);
+  const decoded = DecodeUtils.decodeBody(decodeCtx);
   console.log(`decoded:`, decoded);
 }
 

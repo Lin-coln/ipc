@@ -13,9 +13,7 @@ export enum WireType {
 
   // advanced
   TypeArray = 0xa, // [size:varint, type, values]
-  TypeMap = 0xb, // [size:varint, key_type, val_type, entries]
-  // TypesArray = 0xc, // [size:varint, types, values]
-  // TypesMap = 0xd, // [size:varint, key_types, val_types, entries]
+  // TypeMap = 0xb, // [size:varint, key_type, val_type, entries]
 
   // // custom
   // Foo = (0x1 << 8) | 0x0,

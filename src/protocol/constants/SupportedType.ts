@@ -12,6 +12,7 @@ export type SupportedType =
   // map
   | Map<SupportedType, SupportedType>
   | JsonObject;
+
 interface JsonObject {
   [key: number | string]: SupportedType;
 }
