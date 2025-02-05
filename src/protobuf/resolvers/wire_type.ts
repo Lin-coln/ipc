@@ -1,4 +1,4 @@
-import { WireType } from "../constants";
+import { WireType } from "../interfaces";
 
 export const wire_type = {
   encode(type: WireType): Buffer {

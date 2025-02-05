@@ -1,4 +1,4 @@
-import { zigzag } from "./zigzag";
+import { zigzag } from "../zigzag";
 
 export const varint = {
   encode(value: bigint): Buffer {

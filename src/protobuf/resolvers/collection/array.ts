@@ -1,5 +1,5 @@
-import type { SupportedType } from "../constants";
-import { varint } from "./varint";
+import type { SupportedType } from "../../interfaces";
+import { varint } from "../primitive/varint";
 
 export const array = {
   encode<T extends SupportedType>(

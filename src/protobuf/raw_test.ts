@@ -1,10 +1,9 @@
-import { SupportedType } from "./interfaces";
-import { WireType } from "./constants";
+import { WireType, SupportedType } from "./interfaces";
 
-import { EncodeContext } from "./encoder";
-import { DecodeContext } from "./decoder";
-import { EncodeUtils } from "./constants/EncodeUtils";
-import { DecodeUtils } from "./constants/DecodeUtils";
+import { EncodeContext } from "./encodes/EncodeContext";
+import { encodeType, encodeBody, encodeWire } from "./encodes/wire";
+import { DecodeContext } from "./decodes/DecodeContext";
+import { decodeType, decodeBody, decodeWire } from "./decodes/wire";
 
 const ls: SupportedType[] = [
   -1,
@@ -64,19 +63,20 @@ function execute(item: SupportedType) {
   const isTypeArr = Array.isArray(item) && item[0] === "type_set";
   // const isTypeArr = true;
   const encodeCtx = isTypeArr
-    ? new EncodeContext().setType(WireType.TypeArray, {
-        type: WireType.String,
+    ? EncodeContext.forType(WireType.TypeArray, {
+        elType: WireType.String,
+        nested: undefined,
       })
-    : new EncodeContext(item);
+    : EncodeContext.for(item);
 
-  const type = EncodeUtils.encodeType(encodeCtx.type!);
-  const body = EncodeUtils.encodeBody(encodeCtx, item);
+  const type = encodeType(encodeCtx.wireType);
+  const body = encodeBody(encodeCtx, item);
   console.log(`len: ${body.length}`);
   console.log("type:", toBinStr(type));
   console.log("body:", toBinStr(body));
 
-  const decodeCtx = new DecodeContext(body).setType(encodeCtx.type);
-  const decoded = DecodeUtils.decodeBody(decodeCtx);
+  const decodeCtx = DecodeContext.for(body, encodeCtx.wireType);
+  const decoded = decodeBody(decodeCtx);
   console.log(`decoded:`, decoded);
 }
 

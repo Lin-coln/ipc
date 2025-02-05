@@ -1,6 +1,6 @@
-import type { SupportedType, WireType } from "../constants";
-import { varint } from "./varint";
-import { wire_type } from "./wire_type";
+import type { SupportedType, WireType } from "../../interfaces";
+import { varint } from "../primitive/varint";
+import { wire_type } from "../wire_type";
 
 export const type_array = {
   encode<T extends SupportedType>(

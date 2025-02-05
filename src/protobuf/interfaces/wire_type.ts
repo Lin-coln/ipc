@@ -1,5 +1,5 @@
 export enum WireType {
-  // basic
+  // primitive
   Custom = 0x0, // ext: (ext << 8) | 0x0
   Boolean = 0x1, // 0x0 - false & 0x1 - true
   VarInt = 0x2, // varint
@@ -11,9 +11,9 @@ export enum WireType {
   Array = 0x8, // [len:varint, values:[type, value]]
   Map = 0x9, // [size:varint, entries:[[type, key], [type, value]]
 
-  // advanced
+  // collection
   TypeArray = 0xa, // [size:varint, type, values]
-  // TypeMap = 0xb, // [size:varint, key_type, val_type, entries]
+  // TypeMap = 0xb, // [size:varint, key_type, entries]
 
   // // custom
   // Foo = (0x1 << 8) | 0x0,
